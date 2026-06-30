@@ -3,6 +3,7 @@ import os
 import json
 import random
 import time
+import sys
 import pandas as pd
 import numpy as np
 import pickle
@@ -151,20 +152,14 @@ with tab1:
                 else:
                     st.error(f"BQ Streaming Error: {errors}")
                 
-                # 2. Trigger dbt Transformation Models Programmatically (Linux Container Safe)
-                # 2. Trigger dbt Transformation Models Programmatically (Linux Container Safe)
-                # 2. Trigger dbt Transformation Models Programmatically (Linux Container Safe)
-                # 2. Trigger dbt Transformation Models Programmatically (Linux Container Safe)
+                # 2. Trigger dbt Transformation Models Programmatically
                 st.markdown("### ⚙️ Step 2: Running dbt Cloud Transformation Compilation Layer...")
                 with st.spinner("Executing 'dbt run' to build production warehouse analytics marts..."):
                     
                     custom_env = os.environ.copy()
-                    
-                    # Pass the project ID environment variable
                     if "gcp" in st.secrets:
                         custom_env["STREAMLIT_GCP_PROJECT_ID"] = str(st.secrets["gcp"]["project_id"])
                     
-                    # Extract the active OAuth token from your validated client credentials
                     try:
                         if not bq_client._credentials.valid:
                             from google.auth.transport.requests import Request
@@ -173,7 +168,8 @@ with tab1:
                     except Exception as token_err:
                         st.error(f"Failed to extract dynamic warehouse token: {token_err}")
                     
-                    dbt_command = ["dbt", "run", "--project-dir", "cnc_transformation", "--profiles-dir", "cnc_transformation"]
+                    # 💡 SOLVED: Running dbt directly via the environment's Python runtime interpreter 
+                    dbt_command = [sys.executable, "-m", "dbt.cli.main", "run", "--project-dir", "cnc_transformation", "--profiles-dir", "cnc_transformation"]
                     
                     result = subprocess.run(
                         dbt_command,
@@ -211,14 +207,12 @@ with tab2:
         except Exception as e:
             df = pd.DataFrame()
 
-    # 🌟 PROFESSIONAL CONTEXT FALLBACK LAYER:
     # If BigQuery table is fresh/empty, load 100 rolling rows as baseline, then append live triggers!
     if df.empty and os.path.exists(DATA_PATH):
         st.caption("📶 Cloud Infrastructure Status: Displaying live rolling session data cache...")
         df_raw = pd.read_csv(DATA_PATH).sample(100, random_state=42)
         
         df_hist = pd.DataFrame()
-        # Create unique timestamp allocations per record to fix vertical cluster dot lines
         timestamps = pd.date_range(end=pd.Timestamp.now('UTC') - pd.Timedelta(hours=1), periods=100, freq='min')
         df_hist['reading_at'] = timestamps.strftime('%Y-%m-%d %H:%M:%S') 
         df_hist['machine_id'] = df_raw['UDI'].astype(str)
@@ -248,7 +242,6 @@ with tab2:
         st.subheader("Sensor Temperature Differentials Over Time")
         df_sorted = df.sort_values('reading_at')
         
-        # Clean consolidated continuous timeline visualization
         fig = px.line(
             df_sorted, x='reading_at', y='temperature_differential_c',
             labels={'reading_at': 'Timestamp (UTC)', 'temperature_differential_c': 'Thermal Delta (°C)'},
