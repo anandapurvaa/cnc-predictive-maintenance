@@ -7,3 +7,7 @@ data/
 *.csv
 *.json
 .env
+
+# Local ML model weights and logs
+models/xgboost_cnc_model.pkl
+logs/
