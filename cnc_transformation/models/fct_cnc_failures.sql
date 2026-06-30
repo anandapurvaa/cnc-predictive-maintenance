@@ -16,12 +16,15 @@ select
     air_temperature_c,
     process_temperature_c,
     
-    -- Operational Deltas (Calculating temperature differentials)
+    -- Operational Deltas
     round(process_temperature_c - air_temperature_c, 2) as temperature_differential_c,
     
     rotational_speed_rpm,
     torque_nm,
     tool_wear_min,
+
+    -- Bring the live inference score into the final table
+    ai_failure_risk_score,
 
     -- Risk Assessment Metric Flags
     case 
