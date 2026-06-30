@@ -153,15 +153,23 @@ with tab1:
                 
                 # 2. Trigger dbt Transformation Models Programmatically (Linux Container Safe)
                 # 2. Trigger dbt Transformation Models Programmatically (Linux Container Safe)
+                # 2. Trigger dbt Transformation Models Programmatically (Linux Container Safe)
                 st.markdown("### ⚙️ Step 2: Running dbt Cloud Transformation Compilation Layer...")
                 with st.spinner("Executing 'dbt run' to build production warehouse analytics marts..."):
                     
-                    # FIX: Add '--profiles-dir .' so dbt finds your config in the repo path
+                    # 💡 FIX: Hydrate the OS environment variables so dbt's env_var() can read them!
+                    custom_env = os.environ.copy()
+                    if "gcp" in st.secrets:
+                        for key, value in st.secrets["gcp"].items():
+                            # This translates 'project_id' to 'STREAMLIT_GCP_PROJECT_ID'
+                            custom_env[f"STREAMLIT_GCP_{key.upper()}"] = str(value)
+                    
                     dbt_command = ["dbt", "run", "--project-dir", "cnc_transformation", "--profiles-dir", "cnc_transformation"]
                     
                     result = subprocess.run(
                         dbt_command,
-                        capture_output=True, text=True
+                        capture_output=True, text=True,
+                        env=custom_env  # Pass the securely hydrated environment maps directly to the dbt shell!
                     )
                     if result.returncode == 0:
                         st.success("✅ dbt transformation compilation completed successfully!")
@@ -169,7 +177,6 @@ with tab1:
                         st.info("💡 Switch to the **Live Data Warehouse Analytics** tab above to see your data mapped!")
                     else:
                         st.error("dbt compilation execution failed.")
-                        # This will now display the exact underlying reason dbt is failing!
                         st.code(result.stderr or result.stdout)
                         
             except Exception as e:
