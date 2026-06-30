@@ -5,6 +5,16 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, roc_auc_score
 import xgboost as xgb
 import pickle
+from dotenv import load_dotenv
+
+# Load the .env file
+load_dotenv()
+
+# Access the variables
+db_path = os.getenv("DB_PATH")
+broker_url = os.getenv("BROKER_URL")
+
+print(f"Connecting to: {broker_url}")
 
 def train_predictive_model():
     # Find raw data relative to this script
