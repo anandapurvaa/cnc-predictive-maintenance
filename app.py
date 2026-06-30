@@ -152,10 +152,15 @@ with tab1:
                     st.error(f"BQ Streaming Error: {errors}")
                 
                 # 2. Trigger dbt Transformation Models Programmatically (Linux Container Safe)
+                # 2. Trigger dbt Transformation Models Programmatically (Linux Container Safe)
                 st.markdown("### ⚙️ Step 2: Running dbt Cloud Transformation Compilation Layer...")
                 with st.spinner("Executing 'dbt run' to build production warehouse analytics marts..."):
+                    
+                    # FIX: Add '--profiles-dir .' so dbt finds your config in the repo path
+                    dbt_command = ["dbt", "run", "--project-dir", "cnc_transformation", "--profiles-dir", "cnc_transformation"]
+                    
                     result = subprocess.run(
-                        ["dbt", "run", "--project-dir", "cnc_transformation"],
+                        dbt_command,
                         capture_output=True, text=True
                     )
                     if result.returncode == 0:
@@ -164,6 +169,7 @@ with tab1:
                         st.info("💡 Switch to the **Live Data Warehouse Analytics** tab above to see your data mapped!")
                     else:
                         st.error("dbt compilation execution failed.")
+                        # This will now display the exact underlying reason dbt is failing!
                         st.code(result.stderr or result.stdout)
                         
             except Exception as e:
