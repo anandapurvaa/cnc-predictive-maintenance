@@ -149,15 +149,16 @@ with tab1:
                         st.session_state["live_stream_cache"] = pd.concat([st.session_state["live_stream_cache"], new_live_df], ignore_index=True)
                 else:
                     st.error(f"BQ Streaming Error: {errors}")
-                
-                # ⚙️ Step 2: Running dbt via Native Python API (No Shell Hanging)
-                # ⚙️ Step 2: Running dbt via Native Python API (With Forced Full Parse & Log Extraction)
+                # ⚙️ Step 2: Running dbt via Native Python API (Cleaned Core Arguments)
                 st.markdown("### ⚙️ Step 2: Running dbt Cloud Transformation Compilation Layer...")
                 with st.spinner("Executing API-native 'dbt run' to build production warehouse analytics marts..."):
                     
                     # Hydrate the credentials token dynamically
                     if "gcp" in st.secrets:
                         os.environ["STREAMLIT_GCP_PROJECT_ID"] = str(st.secrets["gcp"]["project_id"])
+                    
+                    # 💡 FIX: Turn off anonymous usage tracking safely using environment variables instead of CLI flags
+                    os.environ["DBT_SEND_ANONYMOUS_USAGE_STATS"] = "False"
                     
                     try:
                         if not bq_client._credentials.valid:
@@ -169,23 +170,25 @@ with tab1:
 
                     # Initialize the safe programmatic dbt engine
                     dbt = dbtRunner()
+                    
+                    # Cleaned arguments focusing strictly on project routing paths
                     cli_args = [
-                        "--no-anonymous-tracking", # Prevents dbt from hanging on background telemetry requests
-                        "--no-use-colors",
                         "run", 
-                        "--force-parser",          # Forces a full fresh model compilation, bypassing caching stalls
                         "--project-dir", "cnc_transformation", 
                         "--profiles-dir", "cnc_transformation"
                     ]
                     
-                    # Execute in-memory without hanging
+                    # Execute in-memory
                     res = dbt.invoke(cli_args)
                     
                     # Output the internal dbt execution log directly to Streamlit for real-time tracking
                     if hasattr(res, 'result') and res.result:
                         with st.expander("📝 View Internal dbt Compilation Logs"):
-                            for node in res.result:
-                                st.caption(f"Model: {node.node.name} | Status: {node.status} | Execution Time: {round(node.execution_time, 2)}s")
+                            try:
+                                for node in res.result:
+                                    st.caption(f"Model: {node.node.name} | Status: {node.status} | Execution Time: {round(node.execution_time, 2)}s")
+                            except Exception:
+                                st.code(str(res.result))
                     
                     if res.success:
                         st.success("✅ dbt transformation compilation completed successfully!")
