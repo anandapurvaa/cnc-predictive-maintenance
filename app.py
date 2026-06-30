@@ -3,13 +3,14 @@ import os
 import json
 import random
 import time
-import sys
 import pandas as pd
 import numpy as np
 import pickle
-import subprocess
 from google.cloud import bigquery
 import plotly.express as px
+
+# 💡 IMPORT THE OFFICIAL PYTHON API FOR DBT
+from dbt.cli.main import dbtRunner
 
 # Setup Dynamic Database Credentials (Streamlit Cloud Secrets vs. Local File Fallback)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -20,7 +21,6 @@ bq_client = None
 # Case A: Check if running on Streamlit Cloud with active Secrets configured
 if "gcp" in st.secrets:
     try:
-        # Convert the Streamlit secrets dictionary back into a formal service account info block
         gcp_info = dict(st.secrets["gcp"])
         bq_client = bigquery.Client.from_service_account_info(gcp_info)
     except Exception as e:
@@ -120,7 +120,6 @@ with tab1:
                     }
                     rows_to_insert.append(payload)
                     
-                    # Track session records structured cleanly for rolling graph appending
                     session_tracking_rows.append({
                         "reading_at": current_time_str,
                         "machine_id": str(row["UDI"]),
@@ -143,7 +142,6 @@ with tab1:
                 if errors == []:
                     st.success(f"✅ Successfully streamed {stream_count} rows to Google BigQuery!")
                     
-                    # Store variables in session state to seamlessly update UI charts without blanking
                     new_live_df = pd.DataFrame(session_tracking_rows)
                     if "live_stream_cache" not in st.session_state:
                         st.session_state["live_stream_cache"] = new_live_df
@@ -152,37 +150,43 @@ with tab1:
                 else:
                     st.error(f"BQ Streaming Error: {errors}")
                 
-                # 2. Trigger dbt Transformation Models Programmatically
+                # ⚙️ Step 2: Running dbt via Native Python API (No Shell Hanging)
                 st.markdown("### ⚙️ Step 2: Running dbt Cloud Transformation Compilation Layer...")
-                with st.spinner("Executing 'dbt run' to build production warehouse analytics marts..."):
+                with st.spinner("Executing API-native 'dbt run' to build production warehouse analytics marts..."):
                     
-                    custom_env = os.environ.copy()
+                    # Hydrate the credentials token dynamically
                     if "gcp" in st.secrets:
-                        custom_env["STREAMLIT_GCP_PROJECT_ID"] = str(st.secrets["gcp"]["project_id"])
+                        os.environ["STREAMLIT_GCP_PROJECT_ID"] = str(st.secrets["gcp"]["project_id"])
                     
                     try:
                         if not bq_client._credentials.valid:
                             from google.auth.transport.requests import Request
                             bq_client._credentials.refresh(Request())
-                        custom_env["DBT_BQ_TOKEN"] = str(bq_client._credentials.token)
+                        os.environ["DBT_BQ_TOKEN"] = str(bq_client._credentials.token)
                     except Exception as token_err:
-                        st.error(f"Failed to extract dynamic warehouse token: {token_err}")
+                        st.error(f"Failed to refresh database auth token: {token_err}")
+
+                    # Initialize the safe programmatic dbt engine
+                    dbt = dbtRunner()
+                    cli_args = [
+                        "run", 
+                        "--project-dir", "cnc_transformation", 
+                        "--profiles-dir", "cnc_transformation"
+                    ]
                     
-                    # 💡 SOLVED: Running dbt directly via the environment's Python runtime interpreter 
-                    dbt_command = [sys.executable, "-m", "dbt.cli.main", "run", "--project-dir", "cnc_transformation", "--profiles-dir", "cnc_transformation"]
+                    # Execute in-memory without hanging
+                    res = dbt.invoke(cli_args)
                     
-                    result = subprocess.run(
-                        dbt_command,
-                        capture_output=True, text=True,
-                        env=custom_env
-                    )
-                    if result.returncode == 0:
+                    if res.success:
                         st.success("✅ dbt transformation compilation completed successfully!")
                         st.balloons()
                         st.info("💡 Switch to the **Live Data Warehouse Analytics** tab above to see your data mapped!")
                     else:
-                        st.error("dbt compilation execution failed.")
-                        st.code(result.stderr or result.stdout)
+                        st.error("dbt compilation execution failed natively.")
+                        if res.exception:
+                            st.exception(res.exception)
+                        else:
+                            st.code(str(res))
                         
             except Exception as e:
                 st.error(f"Pipeline Execution Failed: {e}")
@@ -207,7 +211,6 @@ with tab2:
         except Exception as e:
             df = pd.DataFrame()
 
-    # If BigQuery table is fresh/empty, load 100 rolling rows as baseline, then append live triggers!
     if df.empty and os.path.exists(DATA_PATH):
         st.caption("📶 Cloud Infrastructure Status: Displaying live rolling session data cache...")
         df_raw = pd.read_csv(DATA_PATH).sample(100, random_state=42)
