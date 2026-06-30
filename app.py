@@ -154,22 +154,31 @@ with tab1:
                 # 2. Trigger dbt Transformation Models Programmatically (Linux Container Safe)
                 # 2. Trigger dbt Transformation Models Programmatically (Linux Container Safe)
                 # 2. Trigger dbt Transformation Models Programmatically (Linux Container Safe)
+                # 2. Trigger dbt Transformation Models Programmatically (Linux Container Safe)
                 st.markdown("### ⚙️ Step 2: Running dbt Cloud Transformation Compilation Layer...")
                 with st.spinner("Executing 'dbt run' to build production warehouse analytics marts..."):
                     
-                    # 💡 FIX: Hydrate the OS environment variables so dbt's env_var() can read them!
                     custom_env = os.environ.copy()
+                    
+                    # Pass the project ID environment variable
                     if "gcp" in st.secrets:
-                        for key, value in st.secrets["gcp"].items():
-                            # This translates 'project_id' to 'STREAMLIT_GCP_PROJECT_ID'
-                            custom_env[f"STREAMLIT_GCP_{key.upper()}"] = str(value)
+                        custom_env["STREAMLIT_GCP_PROJECT_ID"] = str(st.secrets["gcp"]["project_id"])
+                    
+                    # Extract the active OAuth token from your validated client credentials
+                    try:
+                        if not bq_client._credentials.valid:
+                            from google.auth.transport.requests import Request
+                            bq_client._credentials.refresh(Request())
+                        custom_env["DBT_BQ_TOKEN"] = str(bq_client._credentials.token)
+                    except Exception as token_err:
+                        st.error(f"Failed to extract dynamic warehouse token: {token_err}")
                     
                     dbt_command = ["dbt", "run", "--project-dir", "cnc_transformation", "--profiles-dir", "cnc_transformation"]
                     
                     result = subprocess.run(
                         dbt_command,
                         capture_output=True, text=True,
-                        env=custom_env  # Pass the securely hydrated environment maps directly to the dbt shell!
+                        env=custom_env
                     )
                     if result.returncode == 0:
                         st.success("✅ dbt transformation compilation completed successfully!")

@@ -2,20 +2,10 @@ cnc_transformation:
   outputs:
     dev:
       type: bigquery
-      method: service-account
-      # dbt automatically pulls these keynames directly from the environment variables Streamlit initializes
+      method: oauth-token
       project: "{{ env_var('STREAMLIT_GCP_PROJECT_ID') }}"
       dataset: raw_factory_data
       threads: 1
-      keyfile_json:
-        type: "{{ env_var('STREAMLIT_GCP_TYPE') }}"
-        project_id: "{{ env_var('STREAMLIT_GCP_PROJECT_ID') }}"
-        private_key_id: "{{ env_var('STREAMLIT_GCP_PRIVATE_KEY_ID') }}"
-        private_key: "{{ env_var('STREAMLIT_GCP_PRIVATE_KEY') }}"
-        client_email: "{{ env_var('STREAMLIT_GCP_CLIENT_EMAIL') }}"
-        client_id: "{{ env_var('STREAMLIT_GCP_CLIENT_ID') }}"
-        auth_uri: "{{ env_var('STREAMLIT_GCP_AUTH_URI') }}"
-        token_uri: "{{ env_var('STREAMLIT_GCP_TOKEN_URI') }}"
-        auth_provider_x509_cert_url: "{{ env_var('STREAMLIT_GCP_AUTH_PROVIDER_X509_CERT_URL') }}"
-        client_x509_cert_url: "{{ env_var('STREAMLIT_GCP_CLIENT_X509_CERT_URL') }}"
+      # Uses the live authenticated session token passed from python!
+      token: "{{ env_var('DBT_BQ_TOKEN') }}"
   target: dev
