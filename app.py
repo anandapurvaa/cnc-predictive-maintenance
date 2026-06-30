@@ -126,6 +126,7 @@ with tab1:
 
 # TAB 2: BigQuery Analytics
 # TAB 2: BigQuery Analytics
+# TAB 2: BigQuery Analytics
 with tab2:
     st.header("Cloud Warehouse Telemetry")
     try:
@@ -154,8 +155,8 @@ with tab2:
         timestamps = pd.date_range(end=pd.Timestamp.now('UTC'), periods=100, freq='min')
         df['reading_at'] = timestamps.strftime('%Y-%m-%d %H:%M:%S') 
         
-        # Cast Machine ID to a string so the Plotly chart treats them as distinct categorical entities
-        df['machine_id'] = df_raw['UDI'].astype(str)
+        # Keep machine_id numeric for the fallback trend chart sorting
+        df['machine_id'] = df_raw['UDI']
         df['air_temperature_c'] = round(df_raw["Air temperature [K]"] - 273.15, 2)
         df['process_temperature_c'] = round(df_raw["Process temperature [K]"] - 273.15, 2)
         df['temperature_differential_c'] = round(df['process_temperature_c'] - df['air_temperature_c'], 2)
@@ -177,12 +178,16 @@ with tab2:
         
         st.subheader("Sensor Temperature Differentials Over Time")
         df_sorted = df.sort_values('reading_at')
+        
+        # FIX: Removed color='machine_id' so Plotly joins the points into a real line chart trend
         fig = px.line(
-            df_sorted, x='reading_at', y='temperature_differential_c', color='machine_id',
+            df_sorted, x='reading_at', y='temperature_differential_c',
             labels={'reading_at': 'Timestamp (UTC)', 'temperature_differential_c': 'Thermal Delta (°C)'},
             title="Active Thermal Degradation (Process Temp - Air Temp)", template="plotly_white"
         )
-        fig.update_layout(hovermode="x unified", legend_title_text="Machine Asset ID")
+        # Add markers so recruiters can hover over individual data points easily
+        fig.update_traces(mode='lines+markers', marker=dict(size=6, color='#FF4B4B'))
+        fig.update_layout(hovermode="x unified")
         st.plotly_chart(fig, use_container_width=True)
         
         st.subheader("Raw Analytics Fleet Log Entries (fct_cnc_failures)")
