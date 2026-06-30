@@ -151,6 +151,7 @@ with tab1:
                     st.error(f"BQ Streaming Error: {errors}")
                 
                 # ⚙️ Step 2: Running dbt via Native Python API (No Shell Hanging)
+                # ⚙️ Step 2: Running dbt via Native Python API (With Forced Full Parse & Log Extraction)
                 st.markdown("### ⚙️ Step 2: Running dbt Cloud Transformation Compilation Layer...")
                 with st.spinner("Executing API-native 'dbt run' to build production warehouse analytics marts..."):
                     
@@ -169,13 +170,22 @@ with tab1:
                     # Initialize the safe programmatic dbt engine
                     dbt = dbtRunner()
                     cli_args = [
+                        "--no-anonymous-tracking", # Prevents dbt from hanging on background telemetry requests
+                        "--no-use-colors",
                         "run", 
+                        "--force-parser",          # Forces a full fresh model compilation, bypassing caching stalls
                         "--project-dir", "cnc_transformation", 
                         "--profiles-dir", "cnc_transformation"
                     ]
                     
                     # Execute in-memory without hanging
                     res = dbt.invoke(cli_args)
+                    
+                    # Output the internal dbt execution log directly to Streamlit for real-time tracking
+                    if hasattr(res, 'result') and res.result:
+                        with st.expander("📝 View Internal dbt Compilation Logs"):
+                            for node in res.result:
+                                st.caption(f"Model: {node.node.name} | Status: {node.status} | Execution Time: {round(node.execution_time, 2)}s")
                     
                     if res.success:
                         st.success("✅ dbt transformation compilation completed successfully!")
