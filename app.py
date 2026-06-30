@@ -10,11 +10,30 @@ import subprocess
 from google.cloud import bigquery
 import plotly.express as px
 
-# Setup GCP configuration dynamically
+# Setup Dynamic Database Credentials (Streamlit Cloud Secrets vs. Local File Fallback)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 KEY_PATH = os.path.join(BASE_DIR, 'gcp-key.json')
 
-# Robust path handling for Streamlit Cloud container architecture
+bq_client = None
+
+# Case A: Check if running on Streamlit Cloud with active Secrets configured
+if "gcp" in st.secrets:
+    try:
+        # Convert the Streamlit secrets dictionary back into a formal service account info block
+        gcp_info = dict(st.secrets["gcp"])
+        bq_client = bigquery.Client.from_service_account_info(gcp_info)
+    except Exception as e:
+        st.error(f"Failed to authenticate BigQuery using Streamlit Secrets: {e}")
+
+# Case B: Fallback to local service account key file (For local development work)
+elif os.path.exists(KEY_PATH):
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = KEY_PATH
+    try:
+        bq_client = bigquery.Client()
+    except Exception as e:
+        st.error(f"Failed to initialize local BigQuery client: {e}")
+
+# Base Paths for Model and Baseline CSV Assets
 MODEL_PATH = os.path.join(BASE_DIR, 'models', 'xgboost_cnc_model.pkl')
 if not os.path.exists(MODEL_PATH):
     MODEL_PATH = 'models/xgboost_cnc_model.pkl'
@@ -22,9 +41,6 @@ if not os.path.exists(MODEL_PATH):
 DATA_PATH = os.path.join(BASE_DIR, 'data', 'ai4i2020.csv')
 if not os.path.exists(DATA_PATH):
     DATA_PATH = 'data/ai4i2020.csv'
-
-if os.path.exists(KEY_PATH):
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = KEY_PATH
 
 # Page Config
 st.set_page_config(page_title="CNC Predictive Maintenance Control Room", layout="wide")
@@ -57,13 +73,14 @@ with tab1:
     if st.button("🔥 Run End-to-End Cloud Pipeline"):
         if model is None or not os.path.exists(DATA_PATH):
             st.error("Missing model artifact or raw data CSV file.")
+        elif bq_client is None:
+            st.error("BigQuery client is unauthenticated. Please configure your Streamlit Secrets correctly.")
         else:
             st.markdown("### 📡 Step 1: Simulating Live Telemetry & Edge Inference...")
             progress_bar = st.progress(0)
             status_text = st.empty()
             
             try:
-                bq_client = bigquery.Client()
                 table_ref = bq_client.dataset("raw_factory_data").table("cnc_telemetry_raw")
                 
                 df_source = pd.read_csv(DATA_PATH).sample(stream_count)
@@ -155,20 +172,22 @@ with tab1:
 # TAB 2: BigQuery Analytics with Rolling Caching Fallback
 with tab2:
     st.header("Cloud Warehouse Telemetry")
-    try:
-        client = bigquery.Client()
-        query = """
-            SELECT reading_at, machine_id, air_temperature_c, process_temperature_c, 
-                   temperature_differential_c, rotational_speed_rpm, torque_nm, 
-                   tool_wear_min, ai_failure_risk_score, has_failed
-            FROM `virtual-metrics-501014-f4.raw_factory_data.fct_cnc_failures`
-            ORDER BY reading_at DESC LIMIT 100
-        """
-        df = client.query(query).to_dataframe()
-        if not df.empty:
-            df['machine_id'] = df['machine_id'].astype(str)
-    except Exception as e:
-        df = pd.DataFrame()
+    
+    df = pd.DataFrame()
+    if bq_client is not None:
+        try:
+            query = """
+                SELECT reading_at, machine_id, air_temperature_c, process_temperature_c, 
+                       temperature_differential_c, rotational_speed_rpm, torque_nm, 
+                       tool_wear_min, ai_failure_risk_score, has_failed
+                FROM `virtual-metrics-501014-f4.raw_factory_data.fct_cnc_failures`
+                ORDER BY reading_at DESC LIMIT 100
+            """
+            df = bq_client.query(query).to_dataframe()
+            if not df.empty:
+                df['machine_id'] = df['machine_id'].astype(str)
+        except Exception as e:
+            df = pd.DataFrame()
 
     # 🌟 PROFESSIONAL CONTEXT FALLBACK LAYER:
     # If BigQuery table is fresh/empty, load 100 rolling rows as baseline, then append live triggers!
