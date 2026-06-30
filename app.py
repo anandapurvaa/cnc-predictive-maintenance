@@ -7,7 +7,13 @@ import numpy as np
 import pickle
 from google.cloud import bigquery
 import plotly.express as px
+from dbt.cli.main import dbtRunner
 
+# Explicitly map Streamlit Secrets to System Environment Variables
+if "gcp" in st.secrets:
+    os.environ["STREAMLIT_GCP_PROJECT_ID"] = str(st.secrets["gcp"]["project_id"])
+
+# Now, dbt will see the variable when it initializes
 # 1. Setup Base File Directories & Fallbacks
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 KEY_PATH = os.path.join(BASE_DIR, 'gcp-key.json')
