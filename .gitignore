@@ -27,5 +27,5 @@ cnc_transformation/dbt_modules/
 !models/xgboost_cnc_model.pkl
 !data/ai4i2020.csv
 
-
+.env
 gcp_credentials.json
