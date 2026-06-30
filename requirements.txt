@@ -8,3 +8,4 @@ dbt-bigquery
 db-dtypes 
 google-cloud-bigquery
 streamlit
+plotly
