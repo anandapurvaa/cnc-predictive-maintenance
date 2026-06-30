@@ -3,9 +3,10 @@ cnc_transformation:
     dev:
       type: bigquery
       method: oauth
+      # dbt will now look for an environment variable named STREAMLIT_GCP_PROJECT_ID
       project: "{{ env_var('STREAMLIT_GCP_PROJECT_ID') }}"
       dataset: raw_factory_data
       threads: 1
-      # dbt reads the token out of the token parameter when method is oauth
+      # dbt will now look for an environment variable named DBT_BQ_TOKEN
       token: "{{ env_var('DBT_BQ_TOKEN') }}"
   target: dev
