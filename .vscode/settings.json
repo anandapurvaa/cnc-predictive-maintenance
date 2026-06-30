@@ -1,0 +1,4 @@
+{
+    "dbt.projectDir": "cnc_transformation",
+    "dbt.profilesDir": "cnc_transformation"
+}
