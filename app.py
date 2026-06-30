@@ -45,11 +45,24 @@ tab1, tab2, tab3 = st.tabs(["🎮 Pipeline Demo", "📊 Analytics", "🎛️ Edg
 with tab1:
     if st.button("🔥 Run End-to-End Pipeline"):
         with st.spinner("Compiling and running dbt transformations..."):
+            # Ensure the paths are absolute
+            project_dir = os.path.join(BASE_DIR, "cnc_transformation")
+            profiles_dir = os.path.join(BASE_DIR, "cnc_transformation")
+            
             os.environ["DBT_SEND_ANONYMOUS_USAGE_STATS"] = "False"
             dbt = dbtRunner()
-            res = dbt.invoke(["run", "--project-dir", "cnc_transformation", "--profiles-dir", "cnc_transformation"])
-            if res.success: st.success("✅ dbt pipeline executed successfully!")
-            else: st.error(f"Pipeline failed: {res.exception}")
+            
+            # Use the absolute paths explicitly
+            res = dbt.invoke(["run", "--project-dir", project_dir, "--profiles-dir", profiles_dir])
+            
+            if res.success: 
+                st.success("✅ dbt pipeline executed successfully!")
+            else: 
+                # Display more detail on the error
+                st.error(f"Pipeline failed: {res.exception}")
+                # Debugging info
+                st.write(f"Project Dir: {project_dir}")
+                st.write(f"Profiles Dir: {profiles_dir}")
 
 with tab2:
     if bq_client:
