@@ -1,13 +1,31 @@
-.venv
-.venv/*
-**/.venv/*
-__pycache__/
-*.pyc
-data/
-*.csv
-*.json
-.env
+# Virtual Environment (Crucial to ignore)
+.venv/
+venv/
+ENV/
+env/
 
-# Local ML model weights and logs
-models/xgboost_cnc_model.pkl
+# Python caching & compiled bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local Log Directories
 logs/
+*.log
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# dbt temporary working directories (Crucial to ignore)
+cnc_transformation/dbt_packages/
+cnc_transformation/target/
+cnc_transformation/dbt_modules/
+
+# --- PORTFOLIO EXCLUSIONS (DO NOT IGNORE THESE) ---
+# We explicitly force Git to track these so Streamlit Cloud can see them:
+!models/xgboost_cnc_model.pkl
+!data/ai4i2020.csv
+
+
+gcp-key.json
