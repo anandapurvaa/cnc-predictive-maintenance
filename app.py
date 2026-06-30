@@ -12,9 +12,6 @@ from dbt.cli.main import dbtRunner
 # 1. BRIDGE SECRETS TO ENVIRONMENT (DO NOT REMOVE)
 if "gcp" in st.secrets:
     os.environ["STREAMLIT_GCP_PROJECT_ID"] = str(st.secrets["gcp"]["project_id"])
-    # If using oauth, ensure token is set
-    if "token" in st.secrets["gcp"]:
-        os.environ["DBT_BQ_TOKEN"] = str(st.secrets["gcp"]["token"])
 
 # 2. FILE PATHS
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
