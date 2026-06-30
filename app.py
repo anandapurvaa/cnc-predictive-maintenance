@@ -1,6 +1,5 @@
 import streamlit as st
 import os
-import json
 import random
 import time
 import pandas as pd
@@ -9,32 +8,10 @@ import pickle
 from google.cloud import bigquery
 import plotly.express as px
 
-# 💡 IMPORT THE OFFICIAL PYTHON API FOR DBT
-from dbt.cli.main import dbtRunner
-
-# Setup Dynamic Database Credentials (Streamlit Cloud Secrets vs. Local File Fallback)
+# 1. Setup Base File Directories & Fallbacks
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 KEY_PATH = os.path.join(BASE_DIR, 'gcp-key.json')
 
-bq_client = None
-
-# Case A: Check if running on Streamlit Cloud with active Secrets configured
-if "gcp" in st.secrets:
-    try:
-        gcp_info = dict(st.secrets["gcp"])
-        bq_client = bigquery.Client.from_service_account_info(gcp_info)
-    except Exception as e:
-        st.error(f"Failed to authenticate BigQuery using Streamlit Secrets: {e}")
-
-# Case B: Fallback to local service account key file (For local development work)
-elif os.path.exists(KEY_PATH):
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = KEY_PATH
-    try:
-        bq_client = bigquery.Client()
-    except Exception as e:
-        st.error(f"Failed to initialize local BigQuery client: {e}")
-
-# Base Paths for Model and Baseline CSV Assets
 MODEL_PATH = os.path.join(BASE_DIR, 'models', 'xgboost_cnc_model.pkl')
 if not os.path.exists(MODEL_PATH):
     MODEL_PATH = 'models/xgboost_cnc_model.pkl'
@@ -43,45 +20,61 @@ DATA_PATH = os.path.join(BASE_DIR, 'data', 'ai4i2020.csv')
 if not os.path.exists(DATA_PATH):
     DATA_PATH = 'data/ai4i2020.csv'
 
-# Page Config
-st.set_page_config(page_title="CNC Predictive Maintenance Control Room", layout="wide")
-st.title("🏭 CNC Predictive Maintenance Control Room")
-st.markdown("An End-to-End MLOps & Data Engineering Production Portfolio")
+# 2. Authenticate and Initialize BigQuery Client
+bq_client = None
 
-# Load ML Model
+if "gcp" in st.secrets:
+    try:
+        gcp_info = dict(st.secrets["gcp"])
+        bq_client = bigquery.Client.from_service_account_info(gcp_info)
+    except Exception as e:
+        st.error(f"Streamlit Cloud Secrets authentication error: {e}")
+elif os.path.exists(KEY_PATH):
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = KEY_PATH
+    try:
+        bq_client = bigquery.Client()
+    except Exception as e:
+        st.error(f"Local Service Account authentication error: {e}")
+
+# 3. Load Machine Learning Model 
 @st.cache_resource
-def load_model():
+def load_ml_model():
     if os.path.exists(MODEL_PATH):
         with open(MODEL_PATH, 'rb') as f:
             return pickle.load(f)
     return None
 
-model = load_model()
+model = load_ml_model()
 
-# Create Tabs
+# 4. Configure Application View Layout
+st.set_page_config(page_title="CNC Predictive Maintenance Control Room", layout="wide")
+st.title("🏭 CNC Predictive Maintenance Control Room")
+st.markdown("An End-to-End MLOps & Data Engineering Production Portfolio")
+
 tab1, tab2, tab3 = st.tabs(["🎮 Recruiter Interactive Demo", "📊 Live Data Warehouse Analytics", "🎛️ What-If Edge Model Simulator"])
 
-# TAB 1: RECRUITER LIVE PIPELINE SIMULATOR
+# TAB 1: DATA INGESTION PIPELINE PIPELINE SIMULATOR
 with tab1:
     st.header("🚀 Live Pipeline Interactive Simulator")
     st.write("""
         **Hey Recruiter!** You don't need to run any code locally. Click the button below to simulate live CNC IoT sensors. 
-        This will generate fresh data, run edge ML inference, stream it to Google BigQuery, and trigger a dbt transformation run in real-time!
+        This will generate fresh data, run edge ML inference, and stream it straight to Google BigQuery in real-time!
     """)
     
     stream_count = st.slider("Number of telemetry rows to stream into cloud pipeline", 5, 30, 10)
     
     if st.button("🔥 Run End-to-End Cloud Pipeline"):
         if model is None or not os.path.exists(DATA_PATH):
-            st.error("Missing model artifact or raw data CSV file.")
+            st.error("Missing required model artifact or baseline raw dataset file.")
         elif bq_client is None:
-            st.error("BigQuery client is unauthenticated. Please configure your Streamlit Secrets correctly.")
+            st.error("BigQuery client is unauthenticated. Check your Streamlit Secrets.")
         else:
             st.markdown("### 📡 Step 1: Simulating Live Telemetry & Edge Inference...")
             progress_bar = st.progress(0)
             status_text = st.empty()
             
             try:
+                # Target the landing table directly
                 table_ref = bq_client.dataset("raw_factory_data").table("cnc_telemetry_raw")
                 
                 df_source = pd.read_csv(DATA_PATH).sample(stream_count)
@@ -99,6 +92,7 @@ with tab1:
                     is_high_speed = 1 if rot_speed > 2500 else 0
                     is_critical_wear = 1 if tool_wear >= 200 else 0
                     
+                    # Machine Learning Feature Vector Structure Alignment
                     features = np.array([[air_temp, proc_temp, temp_diff, rot_speed, torque, tool_wear, is_high_speed, is_critical_wear]])
                     fail_probability = float(model.predict_proba(features)[0][1])
                     
@@ -120,6 +114,7 @@ with tab1:
                     }
                     rows_to_insert.append(payload)
                     
+                    # Store data structured exactly like our warehouse target output view format
                     session_tracking_rows.append({
                         "reading_at": current_time_str,
                         "machine_id": str(row["UDI"]),
@@ -133,90 +128,44 @@ with tab1:
                         "has_failed": int(row["Machine failure"])
                     })
                     
-                    time.sleep(0.08)
+                    time.sleep(0.05)
                     progress_bar.progress((idx + 1) / stream_count)
                     status_text.text(f"Processed row {idx+1}/{stream_count} | ML Failure Risk: {round(fail_probability*100,1)}%")
                 
-                # Stream to BigQuery Cloud
+                # Streaming Ingestion API call directly to Google BigQuery
                 errors = bq_client.insert_rows_json(table_ref, rows_to_insert)
                 if errors == []:
                     st.success(f"✅ Successfully streamed {stream_count} rows to Google BigQuery!")
+                    st.balloons()
                     
+                    # Update local state memory instantly so charts update without a single page lag!
                     new_live_df = pd.DataFrame(session_tracking_rows)
                     if "live_stream_cache" not in st.session_state:
                         st.session_state["live_stream_cache"] = new_live_df
                     else:
                         st.session_state["live_stream_cache"] = pd.concat([st.session_state["live_stream_cache"], new_live_df], ignore_index=True)
+                    
+                    st.info("💡 Switch to the **Live Data Warehouse Analytics** tab above to view your entries!")
                 else:
-                    st.error(f"BQ Streaming Error: {errors}")
-                # ⚙️ Step 2: Running dbt via Native Python API (Cleaned Core Arguments)
-                st.markdown("### ⚙️ Step 2: Running dbt Cloud Transformation Compilation Layer...")
-                with st.spinner("Executing API-native 'dbt run' to build production warehouse analytics marts..."):
-                    
-                    # Hydrate the credentials token dynamically
-                    if "gcp" in st.secrets:
-                        os.environ["STREAMLIT_GCP_PROJECT_ID"] = str(st.secrets["gcp"]["project_id"])
-                    
-                    # 💡 FIX: Turn off anonymous usage tracking safely using environment variables instead of CLI flags
-                    os.environ["DBT_SEND_ANONYMOUS_USAGE_STATS"] = "False"
-                    
-                    try:
-                        if not bq_client._credentials.valid:
-                            from google.auth.transport.requests import Request
-                            bq_client._credentials.refresh(Request())
-                        os.environ["DBT_BQ_TOKEN"] = str(bq_client._credentials.token)
-                    except Exception as token_err:
-                        st.error(f"Failed to refresh database auth token: {token_err}")
-
-                    # Initialize the safe programmatic dbt engine
-                    dbt = dbtRunner()
-                    
-                    # Cleaned arguments focusing strictly on project routing paths
-                    cli_args = [
-                        "run", 
-                        "--project-dir", "cnc_transformation", 
-                        "--profiles-dir", "cnc_transformation"
-                    ]
-                    
-                    # Execute in-memory
-                    res = dbt.invoke(cli_args)
-                    
-                    # Output the internal dbt execution log directly to Streamlit for real-time tracking
-                    if hasattr(res, 'result') and res.result:
-                        with st.expander("📝 View Internal dbt Compilation Logs"):
-                            try:
-                                for node in res.result:
-                                    st.caption(f"Model: {node.node.name} | Status: {node.status} | Execution Time: {round(node.execution_time, 2)}s")
-                            except Exception:
-                                st.code(str(res.result))
-                    
-                    if res.success:
-                        st.success("✅ dbt transformation compilation completed successfully!")
-                        st.balloons()
-                        st.info("💡 Switch to the **Live Data Warehouse Analytics** tab above to see your data mapped!")
-                    else:
-                        st.error("dbt compilation execution failed natively.")
-                        if res.exception:
-                            st.exception(res.exception)
-                        else:
-                            st.code(str(res))
+                    st.error(f"BigQuery Ingestion Exception Log: {errors}")
                         
             except Exception as e:
-                st.error(f"Pipeline Execution Failed: {e}")
+                st.error(f"Pipeline Ingestion Fault: {e}")
 
-# TAB 2: BigQuery Analytics with Rolling Caching Fallback
+# TAB 2: LIVE METRICS WAREHOUSE DASHBOARD
 with tab2:
     st.header("Cloud Warehouse Telemetry")
     
     df = pd.DataFrame()
     if bq_client is not None:
         try:
+            # Query directly out of our logs table to pull live updates dynamically
             query = """
-                SELECT reading_at, machine_id, air_temperature_c, process_temperature_c, 
-                       temperature_differential_c, rotational_speed_rpm, torque_nm, 
-                       tool_wear_min, ai_failure_risk_score, has_failed
-                FROM `virtual-metrics-501014-f4.raw_factory_data.fct_cnc_failures`
-                ORDER BY reading_at DESC LIMIT 100
+                SELECT timestamp_utc as reading_at, machine_id, air_temperature_c, process_temperature_c, 
+                       (process_temperature_c - air_temperature_c) as temperature_differential_c, rotational_speed_rpm, torque_nm, 
+                       tool_wear_min, ml_failure_probability as ai_failure_risk_score, failure_target as has_failed
+                FROM `virtual-metrics-501014-f4.raw_factory_data.cnc_telemetry_raw`
+                ORDER BY timestamp_utc DESC LIMIT 150
             """
             df = bq_client.query(query).to_dataframe()
             if not df.empty:
@@ -224,12 +173,12 @@ with tab2:
         except Exception as e:
             df = pd.DataFrame()
 
+    # Fallback to local session aggregation data to bridge visual logs seamlessly
     if df.empty and os.path.exists(DATA_PATH):
-        st.caption("📶 Cloud Infrastructure Status: Displaying live rolling session data cache...")
         df_raw = pd.read_csv(DATA_PATH).sample(100, random_state=42)
-        
         df_hist = pd.DataFrame()
         timestamps = pd.date_range(end=pd.Timestamp.now('UTC') - pd.Timedelta(hours=1), periods=100, freq='min')
+        
         df_hist['reading_at'] = timestamps.strftime('%Y-%m-%d %H:%M:%S') 
         df_hist['machine_id'] = df_raw['UDI'].astype(str)
         df_hist['air_temperature_c'] = round(df_raw["Air temperature [K]"] - 273.15, 2)
@@ -238,7 +187,7 @@ with tab2:
         df_hist['rotational_speed_rpm'] = df_raw["Rotational speed [rpm]"]
         df_hist['torque_nm'] = df_raw["Torque [Nm]"]
         df_hist['tool_wear_min'] = df_raw["Tool wear [min]"]
-        df_hist['ai_failure_risk_score'] = 0.06
+        df_hist['ai_failure_risk_score'] = 0.05
         df_hist['has_failed'] = df_raw["Machine failure"]
 
         if "live_stream_cache" in st.session_state:
@@ -267,12 +216,12 @@ with tab2:
         fig.update_layout(hovermode="x unified")
         st.plotly_chart(fig, use_container_width=True)
         
-        st.subheader("Raw Analytics Fleet Log Entries (fct_cnc_failures)")
+        st.subheader("Raw Analytics Fleet Log Entries")
         st.dataframe(df, use_container_width=True)
     else:
         st.info("No data available. Go to Tab 1 to execute the live stream simulator pipeline!")
 
-# TAB 3: MODEL SIMULATOR
+# TAB 3: EDGE MODEL SIMULATOR INTERFACE
 with tab3:
     st.header("Interactive Edge ML Inference")
     if model is not None:
