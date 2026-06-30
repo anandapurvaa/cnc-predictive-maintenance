@@ -28,4 +28,4 @@ cnc_transformation/dbt_modules/
 !data/ai4i2020.csv
 
 
-gcp-key.json
+gcp_credentials.json
