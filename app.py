@@ -125,6 +125,7 @@ with tab1:
                 st.error(f"Pipeline Execution Failed: {e}")
 
 # TAB 2: BigQuery Analytics
+# TAB 2: BigQuery Analytics
 with tab2:
     st.header("Cloud Warehouse Telemetry")
     try:
@@ -137,7 +138,35 @@ with tab2:
             ORDER BY reading_at DESC LIMIT 100
         """
         df = client.query(query).to_dataframe()
+    except Exception as e:
+        df = pd.DataFrame() # Graceful fallback to empty dataframe if credentials/connection fail
+
+    # 🌟 PORTFOLIO AUTOMATIC FALLBACK LAYER
+    # If BigQuery is empty, load local CSV data as a baseline preview so visuals render instantly
+    if df.empty and os.path.exists(DATA_PATH):
+        st.caption("⚠️ Note: Displaying historical baseline sample (Cloud warehouse table is empty...)")
+        df_raw = pd.read_csv(DATA_PATH).sample(100, random_state=42)
         
+        # Structure the baseline DataFrame to match your warehouse schema expectations
+        df = pd.DataFrame()
+        
+        # Clean string-formatted ISO timestamps that Plotly parses perfectly
+        timestamps = pd.date_range(end=pd.Timestamp.now('UTC'), periods=100, freq='min')
+        df['reading_at'] = timestamps.strftime('%Y-%m-%d %H:%M:%S') 
+        
+        # Cast Machine ID to a string so the Plotly chart treats them as distinct categorical entities
+        df['machine_id'] = df_raw['UDI'].astype(str)
+        df['air_temperature_c'] = round(df_raw["Air temperature [K]"] - 273.15, 2)
+        df['process_temperature_c'] = round(df_raw["Process temperature [K]"] - 273.15, 2)
+        df['temperature_differential_c'] = round(df['process_temperature_c'] - df['air_temperature_c'], 2)
+        df['rotational_speed_rpm'] = df_raw["Rotational speed [rpm]"]
+        df['torque_nm'] = df_raw["Torque [Nm]"]
+        df['tool_wear_min'] = df_raw["Tool wear [min]"]
+        df['ai_failure_risk_score'] = 0.06 # Default flat baseline guess
+        df['has_failed'] = df_raw["Machine failure"]
+
+    # Render dashboard components only if data is successfully loaded (via BigQuery or local CSV)
+    if not df.empty:
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Total Warehouse Rows Logged", len(df))
@@ -158,8 +187,8 @@ with tab2:
         
         st.subheader("Raw Analytics Fleet Log Entries (fct_cnc_failures)")
         st.dataframe(df, use_container_width=True)
-    except Exception as e:
-        st.info("Click the pipeline runner on Tab 1 to populate the warehouse infrastructure.")
+    else:
+        st.info("No data available. Go to Tab 1 to execute the live stream simulator pipeline!")
 
 # TAB 3: Model Simulator
 with tab3:
