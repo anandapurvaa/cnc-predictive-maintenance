@@ -102,7 +102,7 @@ with tab1:
                     }
                     rows_to_insert.append(payload)
                     
-                    # Track session records structured exactly like fct_cnc_failures for graph appending
+                    # Track session records structured cleanly for rolling graph appending
                     session_tracking_rows.append({
                         "reading_at": current_time_str,
                         "machine_id": str(row["UDI"]),
@@ -134,11 +134,11 @@ with tab1:
                 else:
                     st.error(f"BQ Streaming Error: {errors}")
                 
-                # 2. Trigger dbt Transformation Models Programmatically
+                # 2. Trigger dbt Transformation Models Programmatically (Linux Container Safe)
                 st.markdown("### ⚙️ Step 2: Running dbt Cloud Transformation Compilation Layer...")
                 with st.spinner("Executing 'dbt run' to build production warehouse analytics marts..."):
                     result = subprocess.run(
-                        [".venv/Scripts/dbt", "run", "--project-dir", "cnc_transformation"],
+                        ["dbt", "run", "--project-dir", "cnc_transformation"],
                         capture_output=True, text=True
                     )
                     if result.returncode == 0:
@@ -147,12 +147,12 @@ with tab1:
                         st.info("💡 Switch to the **Live Data Warehouse Analytics** tab above to see your data mapped!")
                     else:
                         st.error("dbt compilation execution failed.")
-                        st.code(result.stderr)
+                        st.code(result.stderr or result.stdout)
                         
             except Exception as e:
                 st.error(f"Pipeline Execution Failed: {e}")
 
-# TAB 2: BigQuery Analytics with Smart Caching Fallback
+# TAB 2: BigQuery Analytics with Rolling Caching Fallback
 with tab2:
     st.header("Cloud Warehouse Telemetry")
     try:
@@ -165,19 +165,19 @@ with tab2:
             ORDER BY reading_at DESC LIMIT 100
         """
         df = client.query(query).to_dataframe()
-        # Ensure machine_id acts clean string categorical labels
         if not df.empty:
             df['machine_id'] = df['machine_id'].astype(str)
     except Exception as e:
         df = pd.DataFrame()
 
     # 🌟 PROFESSIONAL CONTEXT FALLBACK LAYER:
-    # If BigQuery is empty (fresh server deploy), load 100 rolling rows as baseline, then append live triggers!
+    # If BigQuery table is fresh/empty, load 100 rolling rows as baseline, then append live triggers!
     if df.empty and os.path.exists(DATA_PATH):
         st.caption("📶 Cloud Infrastructure Status: Displaying live rolling session data cache...")
         df_raw = pd.read_csv(DATA_PATH).sample(100, random_state=42)
         
         df_hist = pd.DataFrame()
+        # Create unique timestamp allocations per record to fix vertical cluster dot lines
         timestamps = pd.date_range(end=pd.Timestamp.now('UTC') - pd.Timedelta(hours=1), periods=100, freq='min')
         df_hist['reading_at'] = timestamps.strftime('%Y-%m-%d %H:%M:%S') 
         df_hist['machine_id'] = df_raw['UDI'].astype(str)
@@ -207,6 +207,7 @@ with tab2:
         st.subheader("Sensor Temperature Differentials Over Time")
         df_sorted = df.sort_values('reading_at')
         
+        # Clean consolidated continuous timeline visualization
         fig = px.line(
             df_sorted, x='reading_at', y='temperature_differential_c',
             labels={'reading_at': 'Timestamp (UTC)', 'temperature_differential_c': 'Thermal Delta (°C)'},
