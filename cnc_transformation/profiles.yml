@@ -2,10 +2,10 @@ cnc_transformation:
   outputs:
     dev:
       type: bigquery
-      method: oauth-token
+      method: oauth
       project: "{{ env_var('STREAMLIT_GCP_PROJECT_ID') }}"
       dataset: raw_factory_data
       threads: 1
-      # Uses the live authenticated session token passed from python!
+      # dbt reads the token out of the token parameter when method is oauth
       token: "{{ env_var('DBT_BQ_TOKEN') }}"
   target: dev
