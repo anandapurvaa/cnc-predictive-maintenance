@@ -1,9 +1,0 @@
-cnc_transformation:
-  outputs:
-    dev:
-      type: bigquery
-      method: service-account
-      project: "{{ env_var('STREAMLIT_GCP_PROJECT_ID') }}"
-      dataset: raw_factory_data
-      threads: 1
-  target: dev
