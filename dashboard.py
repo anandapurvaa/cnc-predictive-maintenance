@@ -28,13 +28,28 @@ def generate_and_upload(num_rows):
     
     rows_to_insert = []
     for _, row in sample.iterrows():
-        # Example feature engineering (Update to match your training features!)
-        features = np.array([[row["Air temperature [K]"], row["Process temperature [K]"], 
-                              row["Rotational speed [rpm]"], row["Torque [Nm]"], 
-                              row["Tool wear [min]"]]])
+        # 1. Calculate features exactly as they were in train_model.py
+        air_temp = round(row["Air temperature [K]"] - 273.15, 2)
+        proc_temp = round(row["Process temperature [K]"] - 273.15, 2)
+        temp_diff = round(proc_temp - air_temp, 2)
+        rot_speed = row["Rotational speed [rpm]"]
+        torque = row["Torque [Nm]"]
+        tool_wear = row["Tool wear [min]"]
         
+        # 2. Add the flags
+        is_high_speed = 1.0 if rot_speed > 2500 else 0.0
+        is_crit_wear = 1.0 if tool_wear >= 200 else 0.0
+        
+        # 3. Create the 8-feature array
+        features = np.array([[
+            air_temp, proc_temp, temp_diff, rot_speed, 
+            torque, tool_wear, is_high_speed, is_crit_wear
+        ]])
+        
+        # 4. Predict
         prob = float(MODEL.predict_proba(features)[0][1])
         
+        # 5. Prepare data for BigQuery
         rows_to_insert.append({
             "timestamp_utc": pd.Timestamp.now('UTC').isoformat(),
             "machine_id": int(row["UDI"]),
@@ -42,7 +57,7 @@ def generate_and_upload(num_rows):
         })
     
     bq_client.insert_rows_json(TABLE_ID, rows_to_insert)
-    return f"Generated {num_rows} points."
+    return f"Generated {num_rows} new predictions."
 
 # 4. Callbacks
 @app.callback(
