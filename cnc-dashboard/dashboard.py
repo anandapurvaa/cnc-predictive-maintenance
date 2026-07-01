@@ -1,70 +1,66 @@
-import dash 
-from dash import dcc, html
+from dash import Dash, html, dcc, Input, Output, State
+import dash_bootstrap_components as dbc
 import plotly.express as px
-from google.cloud import bigquery
 import pandas as pd
-from dotenv import load_dotenv
-import os
-from flask_caching import Cache
+import pickle
+import numpy as np
+from google.cloud import bigquery
 
-# Add this to load your .env settings
-load_dotenv()
-app = dash.Dash(__name__)
-cache = Cache(app.server, config={'CACHE_TYPE': 'SimpleCache'})
-
-# 1. Initialize BQ Client
+# 1. Initialization
+app = Dash(__name__, external_stylesheets=[dbc.themes.FLATLY])
+MODEL = pickle.load(open('models/xgboost_cnc_model.pkl', 'rb'))
 bq_client = bigquery.Client()
-TABLE_ID = "virtual-metrics-501014-f4.cnc_production.predictions_log"
+TABLE_ID = "your-project-id.cnc_production.predictions_log"
 
-@cache.memoize(timeout=60) # Cache the result for 60 seconds
-def fetch_data():
-    query = f"SELECT * FROM `{TABLE_ID}` ORDER BY timestamp_utc DESC LIMIT 500"
-    return bq_client.query(query).to_dataframe()
+# 2. Layout
+app.layout = dbc.Container([
+    html.H1("CNC Predictive Maintenance Dashboard", className="text-center my-4"),
+    dbc.Button("Generate & Predict Live Data", id="btn-generate", color="primary", className="mb-3"),
+    html.Div(id="refresh-status"),
+    dcc.Graph(id="live-graph"),
+    dcc.Interval(id="interval-component", interval=60*1000, n_intervals=0) # Auto-refresh every min
+], fluid=True)
 
-# 2. Build the Dashboard App
-app = dash.Dash(__name__)
-
-app.layout = html.Div([
-    html.H1("CNC Predictive Maintenance: Model Health Dashboard"),
+# 3. Logic: Data Generation
+def generate_and_upload(num_rows):
+    df_source = pd.read_csv('data/ai4i2020.csv')
+    sample = df_source.sample(n=num_rows)
     
-    # Adding a simple KPI card
-    html.Div(id='live-update-text', style={'fontSize': 24, 'fontWeight': 'bold', 'color': 'red'}),
+    rows_to_insert = []
+    for _, row in sample.iterrows():
+        # Example feature engineering (Update to match your training features!)
+        features = np.array([[row["Air temperature [K]"], row["Process temperature [K]"], 
+                              row["Rotational speed [rpm]"], row["Torque [Nm]"], 
+                              row["Tool wear [min]"]]])
+        
+        prob = float(MODEL.predict_proba(features)[0][1])
+        
+        rows_to_insert.append({
+            "timestamp_utc": pd.Timestamp.now('UTC').isoformat(),
+            "machine_id": int(row["UDI"]),
+            "ml_failure_probability": round(prob, 4)
+        })
     
-    dcc.Interval(id='graph-update', interval=5*1000, n_intervals=0), # Refreshed to 5s
-    dcc.Graph(id='live-graph')
-])
+    bq_client.insert_rows_json(TABLE_ID, rows_to_insert)
+    return f"Generated {num_rows} points."
 
+# 4. Callbacks
 @app.callback(
-    dash.Output('live-graph', 'figure'),
-    [dash.Input('graph-update', 'n_intervals')]
+    [Output("live-graph", "figure"), Output("refresh-status", "children")],
+    [Input("btn-generate", "n_clicks"), Input("interval-component", "n_intervals")]
 )
-@app.callback(
-    dash.Output('live-graph', 'figure'),
-    [dash.Input('graph-update', 'n_intervals')]
-)
-def update_graph(n):
-    df = fetch_data()
+def update_dashboard(n_clicks, n_intervals):
+    # Trigger generation if button clicked
+    status = ""
+    if n_clicks and n_clicks > 0:
+        status = generate_and_upload(5)
     
-    # Create the line chart
-    fig = px.line(df, x='timestamp_utc', y='ml_failure_probability', 
-                  title='Model Risk Probability Over Time')
+    # Query BigQuery for latest data
+    query = f"SELECT * FROM `{TABLE_ID}` ORDER BY timestamp_utc DESC LIMIT 50"
+    df = bq_client.query(query).to_dataframe()
     
-    # Add a horizontal threshold line at 0.8 (Critical Risk)
-    fig.add_hline(y=0.8, line_dash="dash", line_color="red", 
-                  annotation_text="Critical Threshold")
-    
-    # Style the graph to be more readable
-    fig.update_layout(
-        yaxis_range=[0, 1.1], # Keeps the scale fixed between 0 and 1
-        template="plotly_white",
-        margin=dict(l=20, r=20, t=50, b=20)
-    )
-    
-    return fig
+    fig = px.line(df, x="timestamp_utc", y="ml_failure_probability", title="Recent Failure Predictions")
+    return fig, status
 
-server = app.server
-
-if __name__ == '__main__':
-    # Get the port from the environment, default to 8080 for Cloud Run
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port, debug=False)
+if __name__ == "__main__":
+    app.run_server(debug=True)
