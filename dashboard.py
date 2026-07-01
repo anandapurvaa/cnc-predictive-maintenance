@@ -8,7 +8,7 @@ from dash import Dash, dcc, html, Input, Output, ctx
 from google.cloud import bigquery
 
 # 1. Setup - Ensure location matches your dataset!
-TABLE_ID = "virtual-metrics-501014-f4.cnc_dataset.predictions_log" 
+TABLE_ID = "virtual-metrics-501014-f4.cnc_production.predictions_log" 
 bq_client = bigquery.Client(location="europe-west3") 
 
 with open('models/xgboost_cnc_model.pkl', 'rb') as f:
