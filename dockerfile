@@ -1,20 +1,15 @@
-# Use an official Python runtime as a parent image
-FROM python:3.14-slim
+# Use official Python image
+FROM python:3.11-slim
 
-# Set the working directory in the container
+# Set environment variables
+ENV PORT=8080
+
+# Copy local code to the container
 WORKDIR /app
-
-# Copy the requirements file into the container
-COPY requirements.txt .
-
-# Install any needed packages specified in requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy the current directory contents into the container at /app
 COPY . .
 
-# Define environment variables (optional, can be overridden at runtime)
-ENV PYTHONUNBUFFERED=1
+# Install dependencies
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Run smart_stream.py when the container launches
-CMD ["python", "edge_simulator/smart_stream.py"]
+# Run the app using Gunicorn
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 dashboard:server

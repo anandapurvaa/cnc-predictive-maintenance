@@ -6,6 +6,7 @@ import pandas as pd
 import pickle
 import numpy as np
 from google.cloud import pubsub_v1
+from google.cloud import bigquery
 from dotenv import load_dotenv
 
 # Load the .env file
@@ -35,6 +36,33 @@ def load_ml_model():
         return None
     with open(MODEL_PATH, 'rb') as f:
         return pickle.load(f)
+    
+bq_client = bigquery.Client()
+TABLE_ID = "virtual-metrics-501014-f4.cnc_production.predictions_log"
+
+def log_to_bigquery(payload):
+    """
+    Strict mapping: only logs fields defined in the BQ schema.
+    """
+    row_to_insert = [{
+        "timestamp_utc": payload["timestamp_utc"],
+        "machine_id": payload["machine_id"],
+        "product_id": payload["product_id"],
+        "type": payload["type"],
+        "air_temperature_c": payload["air_temperature_c"],
+        "process_temperature_c": payload["process_temperature_c"],
+        "rotational_speed_rpm": payload["rotational_speed_rpm"],
+        "torque_nm": payload["torque_nm"],
+        "tool_wear_min": payload["tool_wear_min"],
+        "failure_target": payload["failure_target"],
+        "ml_failure_probability": payload["ml_failure_probability"],
+        "ml_prediction_lead": payload["ml_prediction_lead"]
+    }]
+    
+    # Use insert_rows_json for direct insertion
+    errors = bq_client.insert_rows_json(TABLE_ID, row_to_insert)
+    if errors:
+        print(f"BigQuery Logging Error: {errors}")
 
 def smart_stream():
     model = load_ml_model()
@@ -89,6 +117,7 @@ def smart_stream():
         
         try:
             future = publisher.publish(topic_path, data_bytes)
+            log_to_bigquery(payload)
             alert_status = "⚠️ CRITICAL FAILURE RISK" if ai_prediction_flag == 1 else "✅ Normal Operations"
             print(f"Sent ID: {future.result()} | ML Risk Calc: {round(fail_probability*100, 2)}% -> {alert_status}")
         except Exception as e:
