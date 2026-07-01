@@ -15,6 +15,7 @@ COPY . .
 
 # Define environment variables (optional, can be overridden at runtime)
 ENV PYTHONUNBUFFERED=1
+ENV PORT=8080
 
 # Run smart_stream.py when the container launches
-CMD ["python", "edge_simulator/smart_stream.py"]
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 dashboard:server
