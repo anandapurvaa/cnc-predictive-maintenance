@@ -33,11 +33,13 @@ app.layout = dbc.Container([
 ])
 
 # 3. Backend Logic
+# 3. Updated Backend Logic
 def generate_and_upload(num_rows):
     try:
         df_source = pd.read_csv('data/ai4i2020.csv')
         sample = df_source.sample(n=num_rows)
         rows = []
+        # Use a consistent starting time (e.g., current time)
         base_time = pd.Timestamp.now('UTC')
         
         for i, (_, row) in enumerate(sample.iterrows()):
@@ -49,8 +51,9 @@ def generate_and_upload(num_rows):
                                   1.0 if row["Tool wear [min]"] >= 200 else 0.0]])
             prob = float(MODEL.predict_proba(features)[0][1])
             
-            # Minute-by-minute logic: add i minutes to the current time
-            timestamp = base_time + pd.Timedelta(minutes=i)
+            # --- 5-MINUTE INTERVAL LOGIC ---
+            # Each subsequent row is 5 minutes later than the previous one
+            timestamp = base_time + pd.Timedelta(minutes=i * 5)
             
             rows.append({
                 "timestamp_utc": timestamp.isoformat(),
@@ -86,7 +89,14 @@ def update_dashboard(n_clicks, n_intervals):
     # Ensure timestamp is datetime type for better Plotly formatting
     df['timestamp_utc'] = pd.to_datetime(df['timestamp_utc'])
     
-    fig = px.line(df, x="timestamp_utc", y="ml_failure_probability", title="Minute-by-Minute Failure Probability")
+    # Ensure proper X-axis formatting in update_dashboard
+    fig = px.line(df, x="timestamp_utc", y="ml_failure_probability", title="5-Minute Interval Failure Probabilities")
+    
+    # Optional: Force Plotly to show specific tick formats
+    fig.update_xaxes(
+        dtick=300000, # 300,000 milliseconds = 5 minutes
+        tickformat="%H:%M"
+    )
     status = dbc.Badge("HEALTHY", color="success") if df['ml_failure_probability'].mean() < 0.5 else dbc.Badge("WARNING", color="warning")
     alert = dbc.Alert(f"CRITICAL: {df['alert_reason'].iloc[0]}", color="danger") if df['ml_failure_probability'].iloc[0] > 0.7 else dbc.Alert("System Stable", color="success")
     
