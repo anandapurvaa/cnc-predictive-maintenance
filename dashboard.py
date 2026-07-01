@@ -62,5 +62,7 @@ def update_dashboard(n_clicks, n_intervals):
     fig = px.line(df, x="timestamp_utc", y="ml_failure_probability", title="Recent Failure Predictions")
     return fig, status
 
+server = app.server
+
 if __name__ == "__main__":
     app.run_server(debug=True)
