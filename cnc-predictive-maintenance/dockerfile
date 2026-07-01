@@ -1,12 +1,16 @@
+# Use a standard, reliable base image
 FROM python:3.14-slim
 
+# Set working directory
 WORKDIR /app
 
+# Install dependencies first
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy application code
 COPY . .
 
-# IMPORTANT: Background workers should NOT run Gunicorn
-# Use the script directly so it runs as a continuous process
-CMD ["python", "edge_simulator/smart_stream.py"]
+# Use the full path to ensure it finds the python executable
+# If your script is in a subdirectory, adjust the path
+CMD ["/usr/local/bin/python", "edge_simulator/smart_stream.py"]
