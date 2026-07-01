@@ -7,6 +7,7 @@ import dash_bootstrap_components as dbc
 from dash import Dash, dcc, html, Input, Output, ctx
 import plotly.graph_objects as go
 from google.cloud import bigquery
+import shap
 
 # 1. Setup - Ensure location matches your dataset!
 TABLE_ID = "virtual-metrics-501014-f4.cnc_production.predictions_log" 
@@ -15,25 +16,32 @@ bq_client = bigquery.Client(location="europe-west3")
 with open('models/xgboost_cnc_model.pkl', 'rb') as f:
     MODEL = pickle.load(f)
 
+df_train = pd.read_csv('data/ai4i2020.csv').dropna().sample(n=100)
+# Feature list must match the order in your generate_and_upload function
+feature_cols = ['Air temperature', 'Process temperature', 'Temp diff', 'RPM', 
+                'Torque', 'Tool wear', 'High RPM', 'High Tool Wear']
+explainer = shap.TreeExplainer(MODEL)
+
 app = Dash(__name__, external_stylesheets=[dbc.themes.FLATLY])
 server = app.server
 
 # 2. Layout - Define the cards once
 metric_row = dbc.Row([
-    dbc.Col(dbc.Card([dbc.CardBody([html.H4("Total Predictions", className="card-title"), html.P(id="total-preds", className="card-text")])])),
-    dbc.Col(dbc.Card([dbc.CardBody([html.H4("System Status", className="card-title"), html.Div(id="status-indicator")])])),
-    dbc.Col(dbc.Card([dbc.CardBody([html.H4("Alert", className="card-title"), html.Div(id="alert-area")])])),
-], className="mb-4") # Added margin bottom for spacing
+    dbc.Col(dbc.Card([dbc.CardBody([html.H4("Total Predictions"), html.P(id="total-preds")])])),
+    dbc.Col(dbc.Card([dbc.CardBody([html.H4("System Status"), html.Div(id="status-indicator")])])),
+    dbc.Col(dbc.Card([dbc.CardBody([html.H4("Alert"), html.Div(id="alert-area")])])),
+], className="mb-4")
 
 app.layout = dbc.Container([
     html.H1("CNC Predictive Maintenance Dashboard", className="text-center my-4"),
     dbc.Button("Generate New Predictions", id="btn-generate", color="primary", className="mb-3"),
-    metric_row, # Reference the variable here
+    metric_row,
     dcc.Graph(id="live-graph"),
+    html.H4("Why this prediction?", className="mt-4"),
+    dcc.Graph(id="shap-graph"),
     dcc.Interval(id="interval-component", interval=5000, n_intervals=0)
 ])
 
-# 3. Backend Logic
 # 3. Updated Backend Logic
 def generate_and_upload(num_rows):
     try:
@@ -75,12 +83,10 @@ def generate_and_upload(num_rows):
         print(f"DEBUG: Generation failed: {e}")
 
 @app.callback(
-    [Output("live-graph", "figure"), 
-     Output("total-preds", "children"),
-     Output("status-indicator", "children"), 
-     Output("alert-area", "children")],
-    [Input("btn-generate", "n_clicks"), 
-     Input("interval-component", "n_intervals")] # This triggers the auto-refresh
+    [Output("live-graph", "figure"), Output("total-preds", "children"),
+     Output("status-indicator", "children"), Output("alert-area", "children"),
+     Output("shap-graph", "figure")],
+    [Input("btn-generate", "n_clicks"), Input("interval-component", "n_intervals")]
 )
 def update_dashboard(n_clicks, n_intervals):
     # 1. Trigger generation ONLY on button click
@@ -103,7 +109,7 @@ def update_dashboard(n_clicks, n_intervals):
     # Sort for the graph so lines draw correctly (left-to-right)
     df_plot = df.sort_values('timestamp_utc')
     
-    # Plotly Graph Objects
+    #1. Main Graph logic
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df_plot['timestamp_utc'], y=df_plot['ml_failure_probability'], mode='lines', name='Failure Prob'))
     fig.add_hline(y=0.7, line_dash="dash", line_color="red", annotation_text="Critical Limit")
@@ -111,6 +117,19 @@ def update_dashboard(n_clicks, n_intervals):
     fig.update_xaxes(type='date', tickformat="%H:%M:%S")
     fig.update_layout(title="Failure Probability (Last 100 readings)", xaxis_title="Time (UTC)", margin=dict(l=20, r=20, t=40, b=20))
     
+    # 2. SHAP Logic (Using latest row)
+    latest = df.iloc[0]
+    # Reconstruct features: Must match MODEL training order
+    # Ensure these are the exact features the model was trained on
+    feat_vals = np.array([[latest['air_temp'], latest['proc_temp'], latest['temp_diff'], 
+                           latest['rpm'], latest['torque_nm'], latest['tool_wear_min'], 
+                           1.0 if latest['rpm'] > 2500 else 0.0, 1.0 if latest['tool_wear_min'] >= 200 else 0.0]])
+    
+    shap_vals = explainer.shap_values(feat_vals)[0]
+    fig_shap = go.Figure([go.Bar(x=shap_vals, y=feature_cols, orientation='h', 
+                                 marker=dict(color=['red' if x > 0 else 'blue' for x in shap_vals]))])
+    fig_shap.update_layout(title="Feature Impact (Red=Risk, Blue=Stable)")
+
     # Get the latest prediction (iloc[0] because the query is DESC)
     latest_prob = df['ml_failure_probability'].iloc[0]
     
@@ -130,7 +149,7 @@ def update_dashboard(n_clicks, n_intervals):
     else:
         alert = dbc.Alert("System Stable", color="success")
     
-    return fig, len(df), status, alert
+    return fig, len(df), status, alert, fig_shap
 
 if __name__ == "__main__":
     app.run_server(debug=True)
