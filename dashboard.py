@@ -30,7 +30,7 @@ app.layout = dbc.Container([
     dbc.Button("Generate New Predictions", id="btn-generate", color="primary", className="mb-3"),
     metric_row, # Reference the variable here
     dcc.Graph(id="live-graph"),
-    dcc.Interval(id="interval-component", interval=60*1000, n_intervals=0)
+    dcc.Interval(id="interval-component", interval=5000, n_intervals=0)
 ])
 
 # 3. Backend Logic
@@ -75,14 +75,19 @@ def generate_and_upload(num_rows):
         print(f"DEBUG: Generation failed: {e}")
 
 @app.callback(
-    [Output("live-graph", "figure"), Output("total-preds", "children"),
-     Output("status-indicator", "children"), Output("alert-area", "children")],
-    [Input("btn-generate", "n_clicks"), Input("interval-component", "n_intervals")]
+    [Output("live-graph", "figure"), 
+     Output("total-preds", "children"),
+     Output("status-indicator", "children"), 
+     Output("alert-area", "children")],
+    [Input("btn-generate", "n_clicks"), 
+     Input("interval-component", "n_intervals")] # This triggers the auto-refresh
 )
 def update_dashboard(n_clicks, n_intervals):
+    # 1. Trigger generation ONLY on button click
     if ctx.triggered_id == "btn-generate" and n_clicks:
-        generate_and_upload(num_rows=10)
+        generate_and_upload(num_rows=5)
     
+    # 2. Always refresh the graph data on every interval tick (or button click)
     query = f"""
         SELECT timestamp_utc, ml_failure_probability, torque_nm, tool_wear_min,
         CASE WHEN torque_nm > 60 THEN 'High Torque' WHEN tool_wear_min > 200 THEN 'High Tool Wear' ELSE 'Normal' END as alert_reason
