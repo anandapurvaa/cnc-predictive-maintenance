@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import dash_bootstrap_components as dbc
-from dash import Dash, dcc, html, Input, Output
+from dash import Dash, dcc, html, Input, Output, ctx
 from google.cloud import bigquery
 
 # 1. Setup
@@ -34,25 +34,26 @@ app.layout = dbc.Container([
 
 # 3. Backend Logic
 def generate_and_upload(num_rows):
-    df_source = pd.read_csv('data/ai4i2020.csv')
-    sample = df_source.sample(n=num_rows)
-    rows = []
-    for _, row in sample.iterrows():
-        # Feature Engineering
-        air_t, proc_t = round(row["Air temperature [K]"]-273.15, 2), round(row["Process temperature [K]"]-273.15, 2)
-        features = np.array([[air_t, proc_t, round(proc_t-air_t, 2), row["Rotational speed [rpm]"], 
-                              row["Torque [Nm]"], row["Tool wear [min]"], 
-                              1.0 if row["Rotational speed [rpm]"] > 2500 else 0.0,
-                              1.0 if row["Tool wear [min]"] >= 200 else 0.0]])
-        prob = float(MODEL.predict_proba(features)[0][1])
-        rows.append({
-            "timestamp_utc": pd.Timestamp.now('UTC').isoformat(),
-            "ml_failure_probability": round(prob, 4),
-            "torque_nm": float(row["Torque [Nm]"]),
-            "tool_wear_min": float(row["Tool wear [min]"])
-        })
-    bq_client.insert_rows_json(TABLE_ID, rows)
-    return "Generated 5 new predictions."
+    try:
+        df_source = pd.read_csv('data/ai4i2020.csv')
+        sample = df_source.sample(n=num_rows)
+        rows = []
+        for _, row in sample.iterrows():
+            air_t, proc_t = round(row["Air temperature [K]"]-273.15, 2), round(row["Process temperature [K]"]-273.15, 2)
+            features = np.array([[air_t, proc_t, round(proc_t-air_t, 2), row["Rotational speed [rpm]"], 
+                                  row["Torque [Nm]"], row["Tool wear [min]"], 
+                                  1.0 if row["Rotational speed [rpm]"] > 2500 else 0.0,
+                                  1.0 if row["Tool wear [min]"] >= 200 else 0.0]])
+            prob = float(MODEL.predict_proba(features)[0][1])
+            rows.append({
+                "timestamp_utc": pd.Timestamp.now('UTC').isoformat(),
+                "ml_failure_probability": round(prob, 4),
+                "torque_nm": float(row["Torque [Nm]"]),
+                "tool_wear_min": float(row["Tool wear [min]"])
+            })
+        bq_client.insert_rows_json(TABLE_ID, rows)
+    except Exception as e:
+        print(f"DEBUG: Generation failed: {e}")
 
 @app.callback(
     [Output("live-graph", "figure"), Output("total-preds", "children"),
@@ -60,7 +61,10 @@ def generate_and_upload(num_rows):
     [Input("btn-generate", "n_clicks"), Input("interval-component", "n_intervals")]
 )
 def update_dashboard(n_clicks, n_intervals):
-    # Industry-level Query
+    # Trigger generation
+    if ctx.triggered_id == "btn-generate" and n_clicks:
+        generate_and_upload(num_rows=5)
+    
     query = f"""
         SELECT timestamp_utc, ml_failure_probability, torque_nm, tool_wear_min,
         CASE WHEN torque_nm > 60 THEN 'High Torque' WHEN tool_wear_min > 200 THEN 'High Tool Wear' ELSE 'Normal' END as alert_reason
@@ -69,7 +73,10 @@ def update_dashboard(n_clicks, n_intervals):
     """
     df = bq_client.query(query).to_dataframe()
     
-    # Visuals & Alerts
+    # Empty state handling
+    if df.empty:
+        return px.line(title="No Data Available"), 0, "N/A", "Waiting for data..."
+    
     fig = px.line(df, x="timestamp_utc", y="ml_failure_probability", title="Recent Failure Predictions")
     status = dbc.Badge("HEALTHY", color="success") if df['ml_failure_probability'].mean() < 0.5 else dbc.Badge("WARNING", color="warning")
     alert = dbc.Alert(f"CRITICAL: {df['alert_reason'].iloc[0]}", color="danger") if df['ml_failure_probability'].iloc[0] > 0.7 else dbc.Alert("System Stable", color="success")
