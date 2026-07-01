@@ -9,7 +9,7 @@ from flask_caching import Cache
 
 # Add this to load your .env settings
 load_dotenv()
-app = dash(__name__)
+app = dash.Dash(__name__)
 cache = Cache(app.server, config={'CACHE_TYPE': 'SimpleCache'})
 
 # 1. Initialize BQ Client
