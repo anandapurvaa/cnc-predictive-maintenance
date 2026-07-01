@@ -13,4 +13,4 @@ COPY . .
 
 # Use the full path to ensure it finds the python executable
 # If your script is in a subdirectory, adjust the path
-CMD ["/usr/local/bin/python", "edge_simulator/smart_stream.py"]
+CMD ["/usr/local/bin/python", "cnc-predictive-maintenance/smart_stream.py"]
