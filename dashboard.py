@@ -26,7 +26,11 @@ app = dash.Dash(__name__)
 
 app.layout = html.Div([
     html.H1("CNC Predictive Maintenance: Model Health Dashboard"),
-    dcc.Interval(id='graph-update', interval=10*1000, n_intervals=0), # Refresh every 10s
+    
+    # Adding a simple KPI card
+    html.Div(id='live-update-text', style={'fontSize': 24, 'fontWeight': 'bold', 'color': 'red'}),
+    
+    dcc.Interval(id='graph-update', interval=5*1000, n_intervals=0), # Refreshed to 5s
     dcc.Graph(id='live-graph')
 ])
 
@@ -34,10 +38,28 @@ app.layout = html.Div([
     dash.Output('live-graph', 'figure'),
     [dash.Input('graph-update', 'n_intervals')]
 )
+@app.callback(
+    dash.Output('live-graph', 'figure'),
+    [dash.Input('graph-update', 'n_intervals')]
+)
 def update_graph(n):
     df = fetch_data()
+    
+    # Create the line chart
     fig = px.line(df, x='timestamp_utc', y='ml_failure_probability', 
                   title='Model Risk Probability Over Time')
+    
+    # Add a horizontal threshold line at 0.8 (Critical Risk)
+    fig.add_hline(y=0.8, line_dash="dash", line_color="red", 
+                  annotation_text="Critical Threshold")
+    
+    # Style the graph to be more readable
+    fig.update_layout(
+        yaxis_range=[0, 1.1], # Keeps the scale fixed between 0 and 1
+        template="plotly_white",
+        margin=dict(l=20, r=20, t=50, b=20)
+    )
+    
     return fig
 
 server = app.server
