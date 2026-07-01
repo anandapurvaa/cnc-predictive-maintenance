@@ -42,37 +42,41 @@ app.layout = dbc.Container([
 def generate_and_upload(num_rows):
     try:
         df_source = pd.read_csv('data/ai4i2020.csv')
-# Check for nulls before sampling
-        if df_source.isnull().values.any():
-            print("Warning: CSV contains null values. Cleaning data...")
-            df_source = df_source.dropna() # Or fillna() depending on your needs
-            sample = df_source.sample(n=num_rows)
-        rows = []
-        # Use current UTC time as the starting point
-        start_time = pd.Timestamp.now('UTC')
+        # Ensure we only pick rows that have all necessary data
+        clean_df = df_source.dropna(subset=['Air temperature [K]', 'Process temperature [K]', 
+                                            'Rotational speed [rpm]', 'Torque [Nm]', 'Tool wear [min]'])
+        sample = clean_df.sample(n=num_rows)
         
-        for i, (_, row) in enumerate(sample.iterrows()):
-            # Feature Engineering
-            air_t, proc_t = round(row["Air temperature [K]"]-273.15, 2), round(row["Process temperature [K]"]-273.15, 2)
-            features = np.array([[air_t, proc_t, round(proc_t-air_t, 2), row["Rotational speed [rpm]"], 
-                                  row["Torque [Nm]"], row["Tool wear [min]"], 
-                                  1.0 if row["Rotational speed [rpm]"] > 2500 else 0.0,
-                                  1.0 if row["Tool wear [min]"] >= 200 else 0.0]])
+        rows = []
+        for _, row in sample.iterrows():
+            # 1. Extract and validate features
+            air_t = float(row["Air temperature [K]"] - 273.15)
+            proc_t = float(row["Process temperature [K]"] - 273.15)
+            torque = float(row["Torque [Nm]"])
+            tool_wear = float(row["Tool wear [min]"])
+            rpm = float(row["Rotational speed [rpm]"])
+            
+            features = np.array([[air_t, proc_t, round(proc_t - air_t, 2), rpm, 
+                                  torque, tool_wear, 
+                                  1.0 if rpm > 2500 else 0.0,
+                                  1.0 if tool_wear >= 200 else 0.0]])
+            
             prob = float(MODEL.predict_proba(features)[0][1])
             
-            # --- HIGH-FREQUENCY LOGIC ---
-            # Instead of i*5 minutes, add 10 seconds per row for realistic streaming flow
-            timestamp = start_time + pd.Timedelta(seconds=i * 10)
-            
+            # 2. Append only if we have valid data
             rows.append({
-                "timestamp_utc": timestamp.isoformat(),
+                "timestamp_utc": pd.Timestamp.now('UTC').isoformat(),
                 "ml_failure_probability": round(prob, 4),
-                "torque_nm": float(row["Torque [Nm]"]),
-                "tool_wear_min": float(row["Tool wear [min]"])
+                "torque_nm": torque,
+                "tool_wear_min": tool_wear
             })
-        bq_client.insert_rows_json(TABLE_ID, rows)
+            
+        if rows:
+            bq_client.insert_rows_json(TABLE_ID, rows)
+            print(f"DEBUG: Successfully inserted {len(rows)} rows.")
+            
     except Exception as e:
-        print(f"DEBUG: Generation failed: {e}")
+        print(f"DEBUG: Generation failed: {str(e)}")
 
 @app.callback(
     [Output("live-graph", "figure"), Output("total-preds", "children"),
