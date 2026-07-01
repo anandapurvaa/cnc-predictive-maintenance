@@ -1,17 +1,7 @@
-# Use a standard Python slim image
 FROM python:3.11-slim
-
-# Set working directory
 WORKDIR /app
-
-# Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy your application code
 COPY . .
-
-# Run the app using Gunicorn (production standard)
-# Replace 'app' with the filename of your script (without .py)
-# Replace 'app' in 'app:server' with the variable name of your Dash app
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "app:server"]
+# Note the change: 'dashboard:server' tells Gunicorn to look in dashboard.py
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "dashboard:server"]
