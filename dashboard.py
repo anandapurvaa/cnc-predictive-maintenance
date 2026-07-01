@@ -10,7 +10,7 @@ from google.cloud import bigquery
 app = Dash(__name__, external_stylesheets=[dbc.themes.FLATLY])
 MODEL = pickle.load(open('models/xgboost_cnc_model.pkl', 'rb'))
 bq_client = bigquery.Client()
-TABLE_ID = "your-project-id.cnc_production.predictions_log"
+TABLE_ID = "virtual-metrics-501014-f4.cnc_production.predictions_log"
 
 # 2. Layout
 app.layout = dbc.Container([
