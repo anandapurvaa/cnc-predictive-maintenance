@@ -9,7 +9,7 @@ from google.cloud import bigquery
 
 # 1. Setup
 TABLE_ID = "virtual-metrics-501014-f4.cnc_dataset.predictions_log" 
-bq_client = bigquery.Client()
+bq_client = bigquery.Client(location="europe-west3")
 
 with open('models/xgboost_cnc_model.pkl', 'rb') as f:
     MODEL = pickle.load(f)
