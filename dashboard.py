@@ -81,9 +81,8 @@ def generate_and_upload(num_rows):
 )
 def update_dashboard(n_clicks, n_intervals):
     if ctx.triggered_id == "btn-generate" and n_clicks:
-        generate_and_upload(num_rows=10) # Generate fewer at a time for better performance
+        generate_and_upload(num_rows=10)
     
-    # Query: Sort by timestamp and limit to keep the graph responsive
     query = f"""
         SELECT timestamp_utc, ml_failure_probability, torque_nm, tool_wear_min,
         CASE WHEN torque_nm > 60 THEN 'High Torque' WHEN tool_wear_min > 200 THEN 'High Tool Wear' ELSE 'Normal' END as alert_reason
@@ -91,35 +90,36 @@ def update_dashboard(n_clicks, n_intervals):
         ORDER BY timestamp_utc DESC
         LIMIT 100
     """
-    df = bq_client.query(query).to_dataframe().sort_values('timestamp_utc')
+    df = bq_client.query(query).to_dataframe()
     
     if df.empty:
         return go.Figure(), 0, "N/A", "Waiting..."
     
-    # Plotly Graph Objects for performance
+    # Sort for the graph so lines draw correctly (left-to-right)
+    df_plot = df.sort_values('timestamp_utc')
+    
+    # Plotly Graph Objects
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df['timestamp_utc'], y=df['ml_failure_probability'], mode='lines', name='Failure Prob'))
-    fig.add_hline(y=0.7, line_dash="dash", line_color="red")
+    fig.add_trace(go.Scatter(x=df_plot['timestamp_utc'], y=df_plot['ml_failure_probability'], mode='lines', name='Failure Prob'))
+    fig.add_hline(y=0.7, line_dash="dash", line_color="red", annotation_text="Critical Limit")
     
-    # Force Plotly to use the actual timestamps as categories without clumping
     fig.update_xaxes(type='date', tickformat="%H:%M:%S")
-    fig.update_layout(title="Failure Probability (Last 100 readings)", xaxis_title="Time (UTC)")
+    fig.update_layout(title="Failure Probability (Last 100 readings)", xaxis_title="Time (UTC)", margin=dict(l=20, r=20, t=40, b=20))
     
-    # ... (Keep your existing query and dataframe logic)
+    # Get the latest prediction (iloc[0] because the query is DESC)
+    latest_prob = df['ml_failure_probability'].iloc[0]
     
-    # Get the latest prediction probability
-    latest_prob = df['ml_failure_probability'].iloc[-1]
-    
-    # Logic for System Status (based on mean probability)
-    avg_prob = df['ml_failure_probability'].mean()
-    if avg_prob > 0.5:
+    # Logic for System Status (based on LATEST, not mean, to avoid "Healthy" masking)
+    if latest_prob > 0.7:
+        status = dbc.Badge("CRITICAL", color="danger")
+    elif latest_prob > 0.5:
         status = dbc.Badge("WARNING", color="warning")
     else:
         status = dbc.Badge("HEALTHY", color="success")
         
-    # Logic for Alert Area (based on latest threshold)
+    # Logic for Alert Area
     if latest_prob > 0.7:
-        alert = dbc.Alert(f"CRITICAL: Failure Imminent! ({latest_prob:.2f})", color="danger")
+        alert = dbc.Alert(f"CRITICAL: {df['alert_reason'].iloc[0]} ({latest_prob:.2f})", color="danger")
     elif latest_prob > 0.5:
         alert = dbc.Alert(f"CAUTION: Elevated Risk ({latest_prob:.2f})", color="warning")
     else:
