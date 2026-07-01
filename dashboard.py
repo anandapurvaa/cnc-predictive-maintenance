@@ -5,6 +5,7 @@ import pandas as pd
 import plotly.express as px
 import dash_bootstrap_components as dbc
 from dash import Dash, dcc, html, Input, Output, ctx
+import plotly.graph_objects as go
 from google.cloud import bigquery
 
 # 1. Setup - Ensure location matches your dataset!
@@ -26,8 +27,12 @@ metric_cards = dbc.Row([
 
 app.layout = dbc.Container([
     html.H1("CNC Predictive Maintenance Dashboard", className="text-center my-4"),
-    dbc.Button("Generate 5 Minute-Interval Predictions", id="btn-generate", color="primary", className="mb-3"),
-    metric_cards,
+    dbc.Button("Generate New Predictions", id="btn-generate", color="primary", className="mb-3"),
+    dbc.Row([
+        dbc.Col(dbc.Card([dbc.CardBody([html.H4("Total Predictions", className="card-title"), html.P(id="total-preds", className="card-text")])])),
+        dbc.Col(dbc.Card([dbc.CardBody([html.H4("System Status", className="card-title"), html.Div(id="status-indicator")])])),
+        dbc.Col(dbc.Card([dbc.CardBody([html.H4("Alert", className="card-title"), html.Div(id="alert-area")])])),
+    ]),
     dcc.Graph(id="live-graph"),
     dcc.Interval(id="interval-component", interval=60*1000, n_intervals=0)
 ])
@@ -37,10 +42,14 @@ app.layout = dbc.Container([
 def generate_and_upload(num_rows):
     try:
         df_source = pd.read_csv('data/ai4i2020.csv')
-        sample = df_source.sample(n=num_rows)
+# Check for nulls before sampling
+        if df_source.isnull().values.any():
+            print("Warning: CSV contains null values. Cleaning data...")
+            df_source = df_source.dropna() # Or fillna() depending on your needs
+            sample = df_source.sample(n=num_rows)
         rows = []
-        # Use a consistent starting time (e.g., current time)
-        base_time = pd.Timestamp.now('UTC')
+        # Use current UTC time as the starting point
+        start_time = pd.Timestamp.now('UTC')
         
         for i, (_, row) in enumerate(sample.iterrows()):
             # Feature Engineering
@@ -51,9 +60,9 @@ def generate_and_upload(num_rows):
                                   1.0 if row["Tool wear [min]"] >= 200 else 0.0]])
             prob = float(MODEL.predict_proba(features)[0][1])
             
-            # --- 5-MINUTE INTERVAL LOGIC ---
-            # Each subsequent row is 5 minutes later than the previous one
-            timestamp = base_time + pd.Timedelta(minutes=i * 5)
+            # --- HIGH-FREQUENCY LOGIC ---
+            # Instead of i*5 minutes, add 10 seconds per row for realistic streaming flow
+            timestamp = start_time + pd.Timedelta(seconds=i * 10)
             
             rows.append({
                 "timestamp_utc": timestamp.isoformat(),
@@ -71,34 +80,33 @@ def generate_and_upload(num_rows):
     [Input("btn-generate", "n_clicks"), Input("interval-component", "n_intervals")]
 )
 def update_dashboard(n_clicks, n_intervals):
+    # Trigger generation
     if ctx.triggered_id == "btn-generate" and n_clicks:
+        # Simplified: removed the 5-min offset to use actual system time
         generate_and_upload(num_rows=5)
     
-    # Query looking for data in the last 24 hours
     query = f"""
         SELECT timestamp_utc, ml_failure_probability, torque_nm, tool_wear_min,
         CASE WHEN torque_nm > 60 THEN 'High Torque' WHEN tool_wear_min > 200 THEN 'High Tool Wear' ELSE 'Normal' END as alert_reason
         FROM `{TABLE_ID}` WHERE timestamp_utc >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
         ORDER BY timestamp_utc DESC LIMIT 500
     """
-    df = bq_client.query(query).to_dataframe()
+    df = bq_client.query(query).to_dataframe().sort_values('timestamp_utc')
     
     if df.empty:
-        return px.line(title="No Data"), 0, "N/A", "Waiting..."
+        return go.Figure(), 0, "N/A", "Waiting..."
     
-    # Ensure timestamp is datetime type for better Plotly formatting
-    df['timestamp_utc'] = pd.to_datetime(df['timestamp_utc'])
+    # Create plot with Critical Threshold Line
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df['timestamp_utc'], y=df['ml_failure_probability'], mode='lines', name='Failure Prob'))
     
-    # Ensure proper X-axis formatting in update_dashboard
-    fig = px.line(df, x="timestamp_utc", y="ml_failure_probability", title="5-Minute Interval Failure Probabilities")
+    # Adding the Critical Threshold Line (Recruiter-impressive feature)
+    fig.add_hline(y=0.7, line_dash="dash", line_color="red", annotation_text="Critical Threshold (0.7)")
     
-    # Optional: Force Plotly to show specific tick formats
-    fig.update_xaxes(
-        dtick=300000, # 300,000 milliseconds = 5 minutes
-        tickformat="%H:%M"
-    )
+    fig.update_layout(title="Failure Probability Over Time", xaxis_title="Timestamp (UTC)", yaxis_title="Probability")
+    
     status = dbc.Badge("HEALTHY", color="success") if df['ml_failure_probability'].mean() < 0.5 else dbc.Badge("WARNING", color="warning")
-    alert = dbc.Alert(f"CRITICAL: {df['alert_reason'].iloc[0]}", color="danger") if df['ml_failure_probability'].iloc[0] > 0.7 else dbc.Alert("System Stable", color="success")
+    alert = dbc.Alert(f"CRITICAL: {df['alert_reason'].iloc[-1]}", color="danger") if df['ml_failure_probability'].iloc[-1] > 0.7 else dbc.Alert("System Stable", color="success")
     
     return fig, len(df), status, alert
 
