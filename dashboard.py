@@ -100,7 +100,7 @@ def update_dashboard(n_clicks, n_intervals):
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df['timestamp_utc'], y=df['ml_failure_probability'], mode='lines', name='Failure Prob'))
     
-    # Adding the Critical Threshold Line (Recruiter-impressive feature)
+    # Adding the Critical Threshold Line
     fig.add_hline(y=0.7, line_dash="dash", line_color="red", annotation_text="Critical Threshold (0.7)")
     
     fig.update_layout(title="Failure Probability Over Time", xaxis_title="Timestamp (UTC)", yaxis_title="Probability")
