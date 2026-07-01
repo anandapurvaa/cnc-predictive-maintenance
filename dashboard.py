@@ -105,7 +105,27 @@ def update_dashboard(n_clicks, n_intervals):
     fig.update_xaxes(type='date', tickformat="%H:%M:%S")
     fig.update_layout(title="Failure Probability (Last 100 readings)", xaxis_title="Time (UTC)")
     
-    return fig, len(df), "HEALTHY", "Stable"
+    # ... (Keep your existing query and dataframe logic)
+    
+    # Get the latest prediction probability
+    latest_prob = df['ml_failure_probability'].iloc[-1]
+    
+    # Logic for System Status (based on mean probability)
+    avg_prob = df['ml_failure_probability'].mean()
+    if avg_prob > 0.5:
+        status = dbc.Badge("WARNING", color="warning")
+    else:
+        status = dbc.Badge("HEALTHY", color="success")
+        
+    # Logic for Alert Area (based on latest threshold)
+    if latest_prob > 0.7:
+        alert = dbc.Alert(f"CRITICAL: Failure Imminent! ({latest_prob:.2f})", color="danger")
+    elif latest_prob > 0.5:
+        alert = dbc.Alert(f"CAUTION: Elevated Risk ({latest_prob:.2f})", color="warning")
+    else:
+        alert = dbc.Alert("System Stable", color="success")
+    
+    return fig, len(df), status, alert
 
 if __name__ == "__main__":
     app.run_server(debug=True)
