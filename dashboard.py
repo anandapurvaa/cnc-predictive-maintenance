@@ -105,8 +105,18 @@ def update_dashboard(n_clicks, n_intervals):
         # SHAP Logic - Using Schema-Correct Column Names
         latest = df.iloc[0]
         # We calculate temp_diff on the fly if it's not in the DB
+        # Ensure these keys match the schema from your image
         air_t = latest['air_temperature_c']
         proc_t = latest['process_temperature_c']
+        rpm = latest['rotational_speed_rpm']
+        torque = latest['torque_nm']
+        wear = latest['tool_wear_min']
+        
+        # Now construct feat_vals using these variables
+        feat_vals = np.array([[air_t, proc_t, (proc_t - air_t), 
+                               rpm, torque, wear, 
+                               1.0 if rpm > 2500 else 0.0, 
+                               1.0 if wear >= 200 else 0.0]])
         
         feat_vals = np.array([[air_t, proc_t, (proc_t - air_t), 
                                latest['rotational_speed_rpm'], latest['torque_nm'], latest['tool_wear_min'], 
