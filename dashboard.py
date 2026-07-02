@@ -65,11 +65,15 @@ def generate_and_upload(num_rows):
             # Use 3-second spacing to prevent "clumping" on the X-axis
             timestamp = start_time + pd.Timedelta(seconds=i * 3)
             
+            # Inside generate_and_upload, update the dictionary being appended:
             rows.append({
                 "timestamp_utc": timestamp.isoformat(),
                 "ml_failure_probability": round(prob, 4),
                 "torque_nm": torque,
-                "tool_wear_min": tool_wear
+                "tool_wear_min": tool_wear,
+                "air_temperature_c": air_t,
+                "process_temperature_c": proc_t,
+                "rotational_speed_rpm": rpm  
             })
             
         if rows:
@@ -89,7 +93,7 @@ def update_dashboard(n_clicks, n_intervals):
         if ctx.triggered_id == "btn-generate" and n_clicks:
             generate_and_upload(num_rows=10)
         
-        query = f"SELECT * FROM `{TABLE_ID}` ORDER BY timestamp_utc DESC LIMIT 100"
+        query = f"SELECT timestamp_utc, ml_failure_probability, torque_nm, tool_wear_min, air_temp, proc_temp, temp_diff, rpm, CASE WHEN torque_nm > 60 THEN 'High Torque' WHEN tool_wear_min > 200 THEN 'High Tool Wear' ELSE 'Normal' END as alert_reason FROM `{TABLE_ID}` ORDER BY timestamp_utc DESC LIMIT 100"
         df = bq_client.query(query).to_dataframe()
         
         if df.empty:
@@ -100,7 +104,8 @@ def update_dashboard(n_clicks, n_intervals):
         # 1. Main Graph
         fig = go.Figure(go.Scatter(x=df_plot['timestamp_utc'], y=df_plot['ml_failure_probability'], mode='lines'))
         fig.update_layout(title="Failure Probability", margin=dict(l=20, r=20, t=40, b=20))
-        
+
+        df = df.fillna(0)
         # 2. SHAP Logic - USING EXACT SCHEMA NAMES
         latest = df.iloc[0]
         
