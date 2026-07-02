@@ -85,42 +85,52 @@ def generate_and_upload(num_rows):
     [Input("btn-generate", "n_clicks"), Input("interval-component", "n_intervals")]
 )
 def update_dashboard(n_clicks, n_intervals):
-    if ctx.triggered_id == "btn-generate" and n_clicks:
-        generate_and_upload(num_rows=10)
-    
-    # YOUR ORIGINAL QUERY RE-INTEGRATED
-    query = f"""
-        SELECT timestamp_utc, ml_failure_probability, torque_nm, tool_wear_min, air_temp, proc_temp, temp_diff, rpm,
-        CASE WHEN torque_nm > 60 THEN 'High Torque' WHEN tool_wear_min > 200 THEN 'High Tool Wear' ELSE 'Normal' END as alert_reason
-        FROM `{TABLE_ID}`
-        ORDER BY timestamp_utc DESC
-        LIMIT 100
-    """
-    df = bq_client.query(query).to_dataframe()
-    if df.empty: return go.Figure(), 0, "N/A", "Waiting...", go.Figure()
-    
-    df_plot = df.sort_values('timestamp_utc')
-    fig = go.Figure(go.Scatter(x=df_plot['timestamp_utc'], y=df_plot['ml_failure_probability'], mode='lines'))
-    fig.update_layout(title="Failure Probability", margin=dict(l=20, r=20, t=40, b=20))
-    
-    # SHAP & Status Logic
-    latest = df.iloc[0]
-    feat_vals = np.array([[latest['air_temp'], latest['proc_temp'], latest['temp_diff'], 
-                           latest['rpm'], latest['torque_nm'], latest['tool_wear_min'], 
-                           1.0 if latest['rpm'] > 2500 else 0.0, 1.0 if latest['tool_wear_min'] >= 200 else 0.0]])
-    
-    shap_vals = explainer.shap_values(feat_vals)[0]
-    fig_shap = go.Figure([go.Bar(x=shap_vals, y=feature_cols, orientation='h', 
-                                 marker=dict(color=['red' if x > 0 else 'blue' for x in shap_vals]))])
-    fig_shap.update_layout(title="Feature Impact (Red=Risk, Blue=Stable)")
+    try:
+        if ctx.triggered_id == "btn-generate" and n_clicks:
+            generate_and_upload(num_rows=10)
+        
+        # Select all columns to ensure we have the data we need
+        query = f"SELECT * FROM `{TABLE_ID}` ORDER BY timestamp_utc DESC LIMIT 100"
+        df = bq_client.query(query).to_dataframe()
+        
+        if df.empty:
+            return go.Figure(), 0, "N/A", "Waiting...", go.Figure()
+        
+        df_plot = df.sort_values('timestamp_utc')
+        
+        # Main Graph
+        fig = go.Figure(go.Scatter(x=df_plot['timestamp_utc'], y=df_plot['ml_failure_probability'], mode='lines'))
+        fig.update_layout(title="Failure Probability", margin=dict(l=20, r=20, t=40, b=20))
+        
+        # SHAP Logic - Using Schema-Correct Column Names
+        latest = df.iloc[0]
+        # We calculate temp_diff on the fly if it's not in the DB
+        air_t = latest['air_temperature_c']
+        proc_t = latest['process_temperature_c']
+        
+        feat_vals = np.array([[air_t, proc_t, (proc_t - air_t), 
+                               latest['rotational_speed_rpm'], latest['torque_nm'], latest['tool_wear_min'], 
+                               1.0 if latest['rotational_speed_rpm'] > 2500 else 0.0, 
+                               1.0 if latest['tool_wear_min'] >= 200 else 0.0]])
+        
+        shap_vals = explainer.shap_values(feat_vals)[0]
+        fig_shap = go.Figure([go.Bar(x=shap_vals, y=feature_cols, orientation='h', 
+                                     marker=dict(color=['red' if x > 0 else 'blue' for x in shap_vals]))])
+        fig_shap.update_layout(title="Feature Impact")
 
-    latest_prob = latest['ml_failure_probability']
-    status = dbc.Badge("CRITICAL", color="danger") if latest_prob > 0.7 else (
-             dbc.Badge("WARNING", color="warning") if latest_prob > 0.5 else dbc.Badge("HEALTHY", color="success"))
-    alert = dbc.Alert(f"{latest['alert_reason']}: {latest_prob:.2f}", color="danger" if latest_prob > 0.7 else "warning") \
-            if latest_prob > 0.5 else dbc.Alert("System Stable", color="success")
+        # Alerts
+        latest_prob = latest['ml_failure_probability']
+        status = dbc.Badge("CRITICAL", color="danger") if latest_prob > 0.7 else (
+                 dbc.Badge("WARNING", color="warning") if latest_prob > 0.5 else dbc.Badge("HEALTHY", color="success"))
+        
+        alert = dbc.Alert(f"Risk level: {latest_prob:.2f}", color="danger" if latest_prob > 0.7 else "warning") \
+                if latest_prob > 0.5 else dbc.Alert("System Stable", color="success")
 
-    return fig, len(df), status, alert, fig_shap
+        return fig, len(df), status, alert, fig_shap
+
+    except Exception as e:
+        print(f"DEBUG ERROR: {e}") # Check your Cloud Run Logs for this message
+        return go.Figure(), 0, "Error", "Check Logs", go.Figure()
 
 if __name__ == "__main__":
     app.run_server(debug=True)
