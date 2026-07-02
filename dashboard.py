@@ -89,7 +89,6 @@ def update_dashboard(n_clicks, n_intervals):
         if ctx.triggered_id == "btn-generate" and n_clicks:
             generate_and_upload(num_rows=10)
         
-        # Select all columns to ensure we have the data we need
         query = f"SELECT * FROM `{TABLE_ID}` ORDER BY timestamp_utc DESC LIMIT 100"
         df = bq_client.query(query).to_dataframe()
         
@@ -98,48 +97,43 @@ def update_dashboard(n_clicks, n_intervals):
         
         df_plot = df.sort_values('timestamp_utc')
         
-        # Main Graph
+        # 1. Main Graph
         fig = go.Figure(go.Scatter(x=df_plot['timestamp_utc'], y=df_plot['ml_failure_probability'], mode='lines'))
         fig.update_layout(title="Failure Probability", margin=dict(l=20, r=20, t=40, b=20))
         
-        # SHAP Logic - Using Schema-Correct Column Names
+        # 2. SHAP Logic - USING EXACT SCHEMA NAMES
         latest = df.iloc[0]
-        # We calculate temp_diff on the fly if it's not in the DB
-        # Ensure these keys match the schema from your image
+        
+        # Mapping Schema to Model Features
         air_t = latest['air_temperature_c']
         proc_t = latest['process_temperature_c']
         rpm = latest['rotational_speed_rpm']
         torque = latest['torque_nm']
         wear = latest['tool_wear_min']
         
-        # Now construct feat_vals using these variables
         feat_vals = np.array([[air_t, proc_t, (proc_t - air_t), 
                                rpm, torque, wear, 
                                1.0 if rpm > 2500 else 0.0, 
                                1.0 if wear >= 200 else 0.0]])
         
-        feat_vals = np.array([[air_t, proc_t, (proc_t - air_t), 
-                               latest['rotational_speed_rpm'], latest['torque_nm'], latest['tool_wear_min'], 
-                               1.0 if latest['rotational_speed_rpm'] > 2500 else 0.0, 
-                               1.0 if latest['tool_wear_min'] >= 200 else 0.0]])
-        
         shap_vals = explainer.shap_values(feat_vals)[0]
         fig_shap = go.Figure([go.Bar(x=shap_vals, y=feature_cols, orientation='h', 
                                      marker=dict(color=['red' if x > 0 else 'blue' for x in shap_vals]))])
-        fig_shap.update_layout(title="Feature Impact")
+        fig_shap.update_layout(title="Feature Impact (Red=Risk, Blue=Stable)")
 
-        # Alerts
+        # 3. Status/Alert Logic
         latest_prob = latest['ml_failure_probability']
         status = dbc.Badge("CRITICAL", color="danger") if latest_prob > 0.7 else (
                  dbc.Badge("WARNING", color="warning") if latest_prob > 0.5 else dbc.Badge("HEALTHY", color="success"))
         
-        alert = dbc.Alert(f"Risk level: {latest_prob:.2f}", color="danger" if latest_prob > 0.7 else "warning") \
+        alert = dbc.Alert(f"Probability: {latest_prob:.2f}", color="danger" if latest_prob > 0.7 else "warning") \
                 if latest_prob > 0.5 else dbc.Alert("System Stable", color="success")
 
         return fig, len(df), status, alert, fig_shap
 
     except Exception as e:
-        print(f"DEBUG ERROR: {e}") # Check your Cloud Run Logs for this message
+        # The logs will now show you EXACTLY which column name was missed
+        print(f"CRITICAL ERROR: {str(e)}") 
         return go.Figure(), 0, "Error", "Check Logs", go.Figure()
 
 if __name__ == "__main__":
